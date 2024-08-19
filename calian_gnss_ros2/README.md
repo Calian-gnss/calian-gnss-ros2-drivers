@@ -2,11 +2,6 @@
 
 This repository contains the ROS2 package for integrating Calian GNSS receivers with ROS2-based systems.
 
-Article: [TruPrecision.pdf](https://www.tallysman.com/app/uploads/2023/12/TAL-TW5794-TruPrecision-SDK-1.pdf)
-
-![image](https://github.com/indro-robotics/tallysman_ros2/assets/29984780/a891740a-4888-45c7-87a2-b3db483f33e1)
-
-
 # Table of Contents
 
 - [:hugs: Introduction](#hugs-introduction)
@@ -37,9 +32,9 @@ Calian Gnss ROS2 is a ROS2 package that provides functionality for interfacing w
 
 # :envelope_with_arrow: Requirements
 
-- [Calian GNSS Antenna](https://tallymatics.com/product/tw5390/)
-- [Ubuntu 22](https://indrorobotics.notion.site/Installing-Dual-OS-and-upgrade-laptop-SSD-0d7c4b8ee9d54e14bbeb9f7ac24f8079?pvs=4)
-- [ROS2 (Humble)](https://www.notion.so/indrorobotics/Getting-Started-with-ROS2-a3960c906f0d46789cd1d7b329784dd0)
+- [Calian GNSS Antenna](https://www.calian.com/advanced-technologies/gnss/technologies/gnss-smart-antennas/)
+- [Ubuntu 22](https://releases.ubuntu.com/jammy/)
+- [ROS2 (Humble)](https://docs.ros.org/en/humble/index.html)
 - [Python](https://docs.python.org/3/)
 
   ```
@@ -128,8 +123,7 @@ To install Calian GNSS ROS2, follow these steps:
 2. **Clone the repository:**
 
     ```bash
-    git clone https://github.com/indro-robotics/Calian_ros2.git
-    git clone https://github.com/indro-robotics/Calian_msg.git
+    git clone git@github.com:Calian-gnss/calian-gnss-ros2-drivers.git
     ```
    
 3. **Build the package using colcon:**
@@ -180,7 +174,6 @@ The Calian GNSS ROS2 package provides flexibility in its configurations, and exa
 - The visualizer node is also initiated, and you can view the mapped location data at **http://localhost:8080**.
 
 - **Note**: You can modify the default port number (8080) of the visualizer node by adjusting the **`port`** parameter in the launch file.
-<img width="1245" alt="tallysman_disabled.launch" src="https://github.com/indro-robotics/tallysman_ros2/assets/29984780/79fa878a-4112-4980-8d31-fe0dfe91d498">
 
 ## :two: RTK-Moving Baseline configuration:
 
@@ -222,16 +215,12 @@ Contributions to Calian ROS2 are welcome! If you find any issues or have suggest
 
 ## :phone: Purchase Call
 
-For inquiries or to purchase our Calian's Antenna, please contact us at [Luke Corbeth(at InDro Robotics)](lcorbeth@indrorobotics.com) or [Calian](gnss.sales@Calian.com). We are excited to assist you and provide further information about our offerings.
+For inquiries or to purchase our Calian's Antenna, please contact us at [Calian](gnss.sales@Calian.com). We are excited to assist you and provide further information about our offerings.
 
 ## :sparkles: Reference
 
-For more information about the Calian ROS2 driver please refer to [GitHub](https://github.com/indro-robotics/Calian_ros2.git)
-
-## :ledger: Resources
-
-We would like to express our sincere gratitude to [Calian](https://www.tallysman.com/) for their collaboration and support. Their contributions have been invaluable to our project's success, and we look forward to continuing our partnership in the future.
+For more information about the Calian ROS2 driver please refer to [GitHub](https://github.com/Calian-gnss/calian-gnss-ros2-drivers/)
 
 ## :page_with_curl: License
 
-This project is licensed under the terms of the [MIT License](https://github.com/indro-robotics/Calian_ros2/blob/main/LICENSE)
+This project is licensed under the terms of the [MIT License](https://github.com/Calian-gnss/calian-gnss-ros2-drivers/blob/main/LICENSE)
