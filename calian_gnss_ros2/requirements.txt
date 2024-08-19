@@ -1,0 +1,7 @@
+folium==0.14.0
+pyserial==3.5
+pytest==6.2.5
+setuptools==58.2.0
+cs-events==0.4.1
+paho-mqtt==1.6.1
+pyubx2==1.2.33

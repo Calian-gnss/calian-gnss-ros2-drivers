@@ -1,0 +1,29 @@
+calian_gnss:
+  gps:
+    ros__parameters:
+      save_logs: False
+      log_level: 20
+
+calian_gnss:                  
+  gps_publisher:
+    ros__parameters:
+      save_logs: False
+      log_level: 20
+
+calian_gnss:
+  base:
+    ros__parameters:
+      save_logs: True
+      log_level: 20
+
+calian_gnss:
+  rover:
+    ros__parameters:
+      save_logs: False
+      log_level: 20
+
+calian_gnss:
+  pointperfect:
+    ros__parameters:
+      save_logs: False
+      log_level: 20

@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>calian_gnss_ros2</name>
+  <version>0.0.0</version>
+  <description>TODO: Package description</description>
+  <maintainer email="liamd@indrorobotics.com">ros2</maintainer>
+  <license>TODO: License declaration</license>
+  
+  <build_depend>ament_cmake</build_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>serial</exec_depend>
+  <exec_depend>calian_gnss_ros2_msg</exec_depend>
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

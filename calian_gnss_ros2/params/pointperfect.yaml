@@ -1,0 +1,5 @@
+calian_gnss:
+  pointperfect:
+    ros__parameters:
+      config_path: 'src/calian_gnss_ros2/pointperfect_files/ucenter-config.json'
+      region: 'us'

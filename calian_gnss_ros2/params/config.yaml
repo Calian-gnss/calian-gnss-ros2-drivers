@@ -1,0 +1,35 @@
+calian_gnss:
+  base:
+    ros__parameters:
+      use_corrections: True
+      corrections_source: "Ntrip"
+      baud_rate: 230400
+      unique_id: "EA 41 EA 98 9A"
+    
+calian_gnss:
+  rover:
+    ros__parameters:
+      use_corrections: False
+      baud_rate: 230400
+      unique_id: "DA 4C DA 89 18"
+
+calian_gnss:
+  gps_publisher:
+    ros__parameters:
+      use_corrections: True
+      corrections_source: "Ntrip"
+      baud_rate: 230400
+      unique_id: "DA 4C DA 89 18"
+
+calian_gnss:
+  gps:
+    ros__parameters:
+      use_corrections: False
+      baud_rate: 230400
+      unique_id: "EA 41 EA 98 9A"
+
+calian_gnss:
+  rtcm_handler:
+    ros__parameters:
+      key: "Wap5SA.O5VD4g:t2ltWLfva3gp5kituU5M4f9JL83BIwioTV1hGOjrSLU"
+      channel: "Rtcm1"
