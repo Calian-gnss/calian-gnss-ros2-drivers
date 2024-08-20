@@ -1,8 +1,8 @@
 calian_gnss:
   ntrip_client:
     ros__parameters:
-      hostname: "na.l1l2.skylark.swiftnav.com"
+      hostname: ""
       port: 2101
-      mountpoint: "MSM5"
-      username: "tallysman_test"
-      password: "WgxrE6fAxv"
+      mountpoint: ""
+      username: ""
+      password: ""
