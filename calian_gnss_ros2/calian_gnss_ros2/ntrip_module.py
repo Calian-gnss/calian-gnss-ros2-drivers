@@ -20,7 +20,6 @@ _SUCCESS_RESPONSES = ["ICY 200 OK", "HTTP/1.0 200 OK", "HTTP/1.1 200 OK"]
 _UNAUTHORIZED_RESPONSES = ["401"]
 
 
-# This is taken from Ntrip Client package and edited as per requirements. Source:
 class NTRIPClient:
 
     # Public constants
@@ -30,7 +29,6 @@ class NTRIPClient:
 
     def __init__(self, host, port, mountpoint, ntrip_version, username, password):
         self._logger = SimplifiedLogger("ntrip_client")
-        # Bit of a strange pattern here, but save the log functions so we can be agnostic of ROS
         self._logerr = self._logger.error
         self._logwarn = self._logger.warn
         self._loginfo = self._logger.info
@@ -51,11 +49,6 @@ class NTRIPClient:
         # Initialize this so we don't throw an exception when closing
         self._raw_socket = None
         self._server_socket = None
-
-        # Setup some parsers to parse incoming messages
-        # self.rtcm_parser = RTCMParser(
-        #     logerr=logerr, logwarn=logwarn, loginfo=loginfo, logdebug=logdebug
-        # )
 
         # Public SSL configuration
         self.ssl = False
@@ -162,8 +155,6 @@ class NTRIPClient:
             )
             known_error = True
 
-        # Wish we could just return from the above checks, but some casters return both a success and an error in the response
-        # If we received any known error, even if we received a success it should be considered a failure
         if known_error or not self._connected:
             self._logerr(
                 "Invalid response received from http://{}:{}/{}".format(
@@ -244,12 +235,6 @@ class NTRIPClient:
             sentence = sentence[:-4] + "\r\n"
         elif sentence[-2:] != "\r\n":
             sentence = sentence + "\r\n"
-
-        # We are sending valid nmea. Invalid nmea will be discarded at parsing stage itself.
-        # Check if it is a valid NMEA sentence
-        # if not self.nmea_parser.is_valid_sentence(sentence):
-        #   self._logwarn("Invalid NMEA sentence, not sending to server")
-        #   return
 
         # Encode the data and send it to the socket
         try:
