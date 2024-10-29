@@ -8,9 +8,11 @@ from ably.types.connectionstate import (
     ConnectionState,
     ConnectionStateChange,
 )
+
+from std_msgs.msg import Header
 from rclpy.node import Node
 from pyrtcm import RTCMReader
-from calian_gnss_ros2_msg.msg import RtcmMessage
+from calian_gnss_ros2_msg.msg import CorrectionMessage
 from calian_gnss_ros2.logging import Logger, LoggingLevel, SimplifiedLogger
 
 
@@ -40,7 +42,9 @@ class RemoteRtcmCorrectionsHandler(Node):
         internal_logger.setLevel(self.log_level)
         self.logger = SimplifiedLogger("remote_rtcm_corrections_handler")
         # Publisher to publish RTCM corrections to Rover
-        self.rtcm_publisher = self.create_publisher(RtcmMessage, "rtcm_corrections", 50)
+        self.rtcm_publisher = self.create_publisher(
+            CorrectionMessage, "rtcm_corrections", 50
+        )
         asyncio.run(self.__process())
         pass
 
@@ -80,12 +84,14 @@ class RemoteRtcmCorrectionsHandler(Node):
     def __process_incoming_messages(self, message: Message):
         try:
             for msg in message.data:
-                rtcmMessage = RTCMReader.parse(base64.b64decode(msg))
-                rtcm = RtcmMessage()
-                rtcm.identity = rtcmMessage.identity
-                rtcm.payload = msg
-                self.rtcm_publisher.publish(rtcm)
-                self.logger.info("RTCM message with identity " + rtcmMessage.identity)
+                rtcmMessage = CorrectionMessage(
+                    header=Header(
+                        stamp=self.get_clock().now().to_msg(),
+                        frame_id=self._frame_id,
+                    ),
+                    message=base64.b64decode(msg),
+                )
+                self.rtcm_publisher.publish(rtcmMessage)
             pass
         except:
             self.logger.error(
