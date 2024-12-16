@@ -9,7 +9,7 @@ from calian_gnss_ros2.pointperfect_module import PointPerfectModule
 from calian_gnss_ros2.serial_module import UbloxSerial
 from pynmeagps import NMEAMessage
 from pyrtcm import RTCMReader
-from calian_gnss_ros2_msg.msg import GnssSignalStatus, CorrectionMessage
+from calian_gnss_ros2_msg.msg import GnssSignalStatus, CorrectionMessage, ReceiverHealthStatus
 from calian_gnss_ros2.logging import Logger, LoggingLevel, SimplifiedLogger
 from std_srvs.srv import Empty
 from std_msgs.msg import Header
@@ -101,9 +101,12 @@ class Gps(Node):
                 GnssSignalStatus, "gps_extended", 50
             )
             pass
-
+        
+        
+        self.health_publisher = self.create_publisher(ReceiverHealthStatus, "health", 50)
+        self.health_timer = self.create_timer(1, self.get_health_status)
         # Timer to poll status messages from base/rover for every sec.
-        self.status_timer = self.create_timer(1, self.get_status)
+        self.status_timer = self.create_timer(0.1, self.get_status)
         # Establishing PointPerfect connection only if it's enabled. Required parameters needs to be sent.
         if self.use_corrections:
             self.on_correction_message = self.create_subscription(
@@ -174,6 +177,18 @@ class Gps(Node):
             self.ser.send(rmg.serialize())
             self.logger.debug("Received RTCM message with identity: " + rmg.identity)
         pass
+    
+    def get_health_status(self) -> None:
+        status = self.ser.get_antenna_health_status
+        header = Header(stamp=self.get_clock().now().to_msg(), frame_id=self._frame_id)
+        msg = ReceiverHealthStatus()
+        msg.header = header
+        if status:
+            msg.health = "Good"
+        else:
+            msg.health = "Bad"
+        self.health_publisher.publish(msg)
+
 
     """
         gets the status of the signal and outputs into the topic with NavSatFix message

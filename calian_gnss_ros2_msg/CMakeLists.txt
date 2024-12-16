@@ -19,6 +19,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/GnssSignalStatus.msg"
   "msg/NavSatInfo.msg"
   "msg/CorrectionMessage.msg"
+  "msg/ReceiverHealthStatus.msg"
   DEPENDENCIES std_msgs
   DEPENDENCIES sensor_msgs
   DEPENDENCIES builtin_interfaces

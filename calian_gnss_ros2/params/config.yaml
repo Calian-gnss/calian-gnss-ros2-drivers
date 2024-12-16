@@ -11,15 +11,14 @@ calian_gnss:
     ros__parameters:
       use_corrections: False
       baud_rate: 230400
-      unique_id: "DA 4C DA 89 18"
+      unique_id: "59 40 E2 1D 5A"
 
 calian_gnss:
   gps_publisher:
     ros__parameters:
-      use_corrections: True
-      corrections_source: "Ntrip"
+      use_corrections: False
       baud_rate: 230400
-      unique_id: "DA 4C DA 89 18"
+      unique_id: "59 40 E2 1D 5A"
 
 calian_gnss:
   gps:
