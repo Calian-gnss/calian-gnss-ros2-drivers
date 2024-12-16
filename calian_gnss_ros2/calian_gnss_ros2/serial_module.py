@@ -51,32 +51,38 @@ class SerialUtilities:
         ],
     ) -> str:
         port_name = ""
+        baudrates = [9600, 19200, 38400, 57600, 115200, 230400, 460800]
+        ubx: UBXMessage = UBXMessage.config_set(1, 0, [("CFG_UART1_BAUDRATE", baudrate)])
         ports = comports()
         failed_ports = []
         if len(ports) != 0:
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 for port in ports:
-                    if port.description.find("Standard") != -1 and not port_name:
-                        try:
-                            standard_port = serial.Serial(port.device, baudrate)
-                            thread = executor.submit(
-                                SerialUtilities.extract_unique_id_of_port,
-                                standard_port=standard_port,
-                                timeout=3,
-                            )
-                            unique_id_of_port = thread.result(3)
-                            if unique_id_of_port.upper() == unique_id.upper():
-                                port_name = port.device
-                            pass
-                        except:
-                            failed_ports.append(port.device)
-                            pass
-                        finally:
-                            standard_port.close()
-                            standard_port = None
-                            if port_name:
-                                break
-                            pass
+                    for baud in baudrates:
+                        if port.description.find("Standard") != -1 and not port_name:
+                            try:
+                                standard_port = serial.Serial(port.device, baud)
+                                thread = executor.submit(
+                                    SerialUtilities.extract_unique_id_of_port,
+                                    standard_port=standard_port,
+                                    timeout=3,
+                                )
+                                unique_id_of_port = thread.result(3)
+                                if unique_id_of_port.upper() == unique_id.upper():
+                                    port_name = port.device
+                                    if baud != baudrate:
+                                        standard_port.write(ubx.serialize())
+                                        time.sleep(2)
+                                pass
+                            except:
+                                failed_ports.append(port.device)
+                                pass
+                            finally:
+                                standard_port.close()
+                                standard_port = None
+                                if port_name:
+                                    break
+                                pass
                     pass
 
                 # trying again for the failed port...need to do this because of race conditions.
