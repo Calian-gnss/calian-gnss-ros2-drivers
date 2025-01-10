@@ -51,32 +51,40 @@ class SerialUtilities:
         ],
     ) -> str:
         port_name = ""
+        baudrates = [38400, 230400]
+        ubx: UBXMessage = UBXMessage.config_set(
+            1, 0, [("CFG_UART1_BAUDRATE", baudrate)]
+        )
         ports = comports()
         failed_ports = []
         if len(ports) != 0:
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 for port in ports:
-                    if port.description.find("Standard") != -1 and not port_name:
-                        try:
-                            standard_port = serial.Serial(port.device, baudrate)
-                            thread = executor.submit(
-                                SerialUtilities.extract_unique_id_of_port,
-                                standard_port=standard_port,
-                                timeout=3,
-                            )
-                            unique_id_of_port = thread.result(3)
-                            if unique_id_of_port.upper() == unique_id.upper():
-                                port_name = port.device
-                            pass
-                        except:
-                            failed_ports.append(port.device)
-                            pass
-                        finally:
-                            standard_port.close()
-                            standard_port = None
-                            if port_name:
-                                break
-                            pass
+                    for baud in baudrates:
+                        if port.description.find("Standard") != -1 and not port_name:
+                            try:
+                                standard_port = serial.Serial(port.device, baud)
+                                thread = executor.submit(
+                                    SerialUtilities.extract_unique_id_of_port,
+                                    standard_port=standard_port,
+                                    timeout=3,
+                                )
+                                unique_id_of_port = thread.result(3)
+                                if unique_id_of_port.upper() == unique_id.upper():
+                                    port_name = port.device
+                                    if baud != baudrate:
+                                        standard_port.write(ubx.serialize())
+                                        time.sleep(2)
+                                pass
+                            except:
+                                failed_ports.append(port.device)
+                                pass
+                            finally:
+                                standard_port.close()
+                                standard_port = None
+                                if port_name:
+                                    break
+                                pass
                     pass
 
                 # trying again for the failed port...need to do this because of race conditions.
@@ -143,7 +151,7 @@ class UbloxSerial:
         self.__recent_ubx_message = dict[str, (float, UBXMessage)]()
         self.__service_constellations = 0
         self.runTime = 0
-
+        self.__is_antenna_healthy = False
         self.__process = threading.Thread(
             target=self.__serial_process, name="serial_process_thread", daemon=True
         )
@@ -183,12 +191,73 @@ class UbloxSerial:
                 if monSys is not None:
                     if self.runTime <= monSys.runTime:
                         self.runTime = monSys.runTime
+                        self.__is_antenna_healthy = True
                     else:
                         self.logger.warn("Antenna rebooted. Reconfiguring the antenna")
                         # self.__save_boot_times(self.runTime)
                         self.runTime = 0
+                        self.__is_antenna_healthy = False
                         self.config()
+                else:
+                    self.check_antenna_health()
             time.sleep(1)
+
+    def get_antenna_health_status(self):
+        return self.__is_antenna_healthy
+
+    def check_antenna_health(self):
+        ubx: UBXMessage = UBXMessage.config_set(
+            1, 0, [("CFG_UART1_BAUDRATE", self.baudrate)]
+        )
+        baudrates = [38400, 230400]
+        # ant_baud_rate: Literal[9600, 19200, 38400, 57600, 115200, 230400]
+        self.__port.close()
+        self.__config_status = False
+        self.__port = None
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            for baudrate in baudrates:
+                try:
+                    self.logger.debug(
+                        "Connecting to port "
+                        + self.port_name
+                        + " using baud : "
+                        + str(baudrate)
+                    )
+                    standard_port = serial.Serial(self.port_name, baudrate)
+                    thread = executor.submit(
+                        SerialUtilities.extract_unique_id_of_port,
+                        standard_port=standard_port,
+                        timeout=3,
+                    )
+                    unique_id_of_port = thread.result(3)
+
+                    # changes the baudrate of the port to the desired value.
+                    if unique_id_of_port:
+                        standard_port.write(ubx.serialize())
+                        break
+                except:
+                    self.logger.warn(
+                        "Cannot communicate to the port "
+                        + self.port_name
+                        + " using baud : "
+                        + str(baudrate)
+                    )
+                    pass
+                finally:
+                    standard_port.close()
+                    standard_port = None
+
+    def check_corrections_applied_status(self):
+        try:
+            time_of_message, ubxmessage = self.__recent_ubx_message["RXM-SPARTN"]
+            if (
+                time_of_message and time.time() - time_of_message < 60
+            ):  # return only if received in less than 60sec
+                return True
+            else:
+                return False
+        except:
+            return False
 
     """
         This method is responsible for setting up the serial port based on port_name and baudrate. It also starts a receive_thread specific to port_name serial port and configures a reader to parse the data
