@@ -32,7 +32,7 @@ class Gps(Node):
         self.declare_parameter("baud_rate", 230400)
         # Parameter {config_path} needs to be present if this is True.
         self.declare_parameter("use_corrections", True)
-        self.declare_parameter("corrections_source", "PointPerfect")
+        self.declare_parameter("corrections_source", "PointPerfect_Ip")
         self.declare_parameter("save_logs", False)
         self.declare_parameter("log_level", LoggingLevel.Info)
         self.declare_parameter("frame_id", "gps")
@@ -48,7 +48,9 @@ class Gps(Node):
         self.use_corrections = (
             self.get_parameter("use_corrections").get_parameter_value().bool_value
         )
-        self.corrections_source: Literal["PointPerfect", "Ntrip"] = (
+        self.corrections_source: Literal[
+            "PointPerfect_Ip", "Ntrip", "PointPerfect_Lband"
+        ] = (
             self.get_parameter("corrections_source").get_parameter_value().string_value
         )
         self.save_logs = (
@@ -117,10 +119,10 @@ class Gps(Node):
             self.on_correction_message = self.create_subscription(
                 CorrectionMessage, "corrections", self.handle_correction_message, 100
             )
-            if self.corrections_source == "PointPerfect":
+            if "PointPerfect" in self.corrections_source:
                 self._pp_client = self.create_client(Empty, "restart")
                 self.reconnect_timer = self.create_timer(
-                    5, self.__reconnect_pointperfect_if_needed
+                    30, self.__reconnect_pointperfect_if_needed
                 )
             else:
                 self.nmea_publisher = self.create_publisher(Sentence, "nmea", 100)
