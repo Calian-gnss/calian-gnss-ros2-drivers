@@ -16,9 +16,10 @@ calian_gnss:
 calian_gnss:
   gps_publisher:
     ros__parameters:
-      use_corrections: False
+      use_corrections: True
+      corrections_source: "PointPerfect_Lband"
       baud_rate: 230400
-      unique_id: "59 40 E2 1D 5A"
+      unique_id: "DA 4C DA 89 18"
 
 calian_gnss:
   gps:

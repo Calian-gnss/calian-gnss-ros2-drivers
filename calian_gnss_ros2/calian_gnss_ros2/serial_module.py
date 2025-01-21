@@ -131,7 +131,7 @@ class UbloxSerial:
         ],
         rtk_mode: Literal["Disabled", "Heading_Base", "Rover"],
         use_corrections: bool = False,
-        corrections_source=Literal["PointPerfect", "Ntrip"],
+        corrections_source=Literal["PointPerfect_Ip", "Ntrip", "PointPerfect_Lband"],
     ):
         self.logger = SimplifiedLogger(rtk_mode + "_Serial")
         # Event handlers for Ublox, Nmea and RTCM messages.
@@ -504,7 +504,10 @@ class UbloxSerial:
             # augmentations information
             augmentations_used = False
             if self.__use_corrections:
-                if self.__corrections_source == "PointPerfect":
+                if (
+                    self.__corrections_source == "PointPerfect_Ip"
+                    or self.__corrections_source == "PointPerfect_Lband"
+                ):
                     rxm_spartn = self.get_recent_ubx_message("RXM-SPARTN")
                     augmentations_used = (
                         True if rxm_spartn and rxm_spartn.msgUsed == 2 else False
@@ -688,7 +691,9 @@ class UbloxSerial:
         self,
         mode_of_operation: Literal["Disabled", "Heading_Base", "Rover"],
         use_corrections: bool = False,
-        corrections_source: Literal["PointPerfect", "Ntrip"] = "PointPerfect",
+        corrections_source: Literal[
+            "PointPerfect_Ip", "Ntrip", "PointPerfect_Lband"
+        ] = "PointPerfect_Ip",
     ) -> list:
         # Common configuration. Enabling Nmea, Ubx messages for both input and output.
         config_data = [
@@ -745,10 +750,19 @@ class UbloxSerial:
             )
 
         if use_corrections:
-            if corrections_source == "PointPerfect":
+            if corrections_source == "PointPerfect_Ip":
                 config_data.extend(
                     [
                         ("CFG_SPARTN_USE_SOURCE", 0),
+                        ("CFG_UART1INPROT_SPARTN", 1),
+                        ("CFG_MSGOUT_UBX_RXM_SPARTN_UART1", 1),
+                        ("CFG_MSGOUT_UBX_RXM_COR_UART1", 1),
+                    ]
+                )
+            elif corrections_source == "PointPerfect_Lband":
+                config_data.extend(
+                    [
+                        ("CFG_SPARTN_USE_SOURCE", 1),
                         ("CFG_UART1INPROT_SPARTN", 1),
                         ("CFG_MSGOUT_UBX_RXM_SPARTN_UART1", 1),
                         ("CFG_MSGOUT_UBX_RXM_COR_UART1", 1),

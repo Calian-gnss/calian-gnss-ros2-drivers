@@ -26,24 +26,28 @@ class PointPerfectConfiguration:
     """
 
     def __init__(
-        self, region: Literal["us", "kr", "eu", "au"], config_path: str
+        self,
+        region: Literal["us", "kr", "eu", "au"],
+        config_path: str,
+        source: Literal["lband", "ip"],
     ) -> None:
         self.__region = region
-        self.Host: str = "pp.services.u-blox.com"
-        self.Port: int = 8883
-        self.__generate_configs_from_file(config_path)
+        self.host: str = "pp.services.u-blox.com"
+        self.port: int = 8883
+        self.config_path: str = config_path
+        self.__generate_configs_from_file(source)
         pass
 
     """
         Extracts configurations from PointPerfect configuration file. Config file <ucenter_config_file> should be the downloaded from https://portal.thingstream.io/. 
     """
 
-    def __generate_configs_from_file(self, config_path: str):
-        with open(config_path) as json_file:
+    def __generate_configs_from_file(self, source: Literal["lband", "ip"]):
+        with open(self.config_path) as json_file:
             config_json = json.load(json_file)["MQTT"]
             self.keep_alive = config_json["Connectivity"]["KeepAliveInterval"]
             self.client_id = config_json["Connectivity"]["ClientID"]
-            self.topics = self.__get_topics(config_json["Subscriptions"])
+            self.topics = self.__get_topics(config_json["Subscriptions"], source)
             self.cert_file = self.__generate_cert_file(
                 "CERTIFICATE",
                 config_json["Connectivity"]["ClientCredentials"]["Cert"],
@@ -65,13 +69,15 @@ class PointPerfectConfiguration:
         Extracts necessary topics from Subsciption topics.
     """
 
-    def __get_topics(self, subs: dict) -> None:
+    def __get_topics(self, subs: dict, source: Literal["lband", "ip"]) -> None:
         topics: list[(str, int)] = [(subs["Key"]["KeyTopics"][0], subs["Key"]["QoS"])]
-        qos = subs["Data"]["QoS"]
-        for topic in subs["Data"]["DataTopics"]:
-            if self.__region in topic:
-                topics.append((topic, qos))
-        topics.pop()  # vomitting deserialized topic
+        self.key_topic = subs["Key"]["KeyTopics"][0]
+        if source == "ip":
+            qos = subs["Data"]["QoS"]
+            for topic in subs["Data"]["DataTopics"]:
+                if self.__region in topic:
+                    topics.append((topic, qos))
+            topics.pop()  # vomitting deserialized topic
         return topics
 
     """
@@ -79,9 +85,10 @@ class PointPerfectConfiguration:
     """
 
     def __generate_cert_file(self, header: str, contents: str, file_name: str) -> str:
-        directory = "src/calian_gnss_ros2/pointperfect_files"
-        os.makedirs(directory, exist_ok=True)
-        with open(os.path.join(directory, file_name), "w") as file:
+        os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
+        with open(
+            os.path.join(os.path.dirname(self.config_path), file_name), "w"
+        ) as file:
             lines = []
             pem_prefix = "-----BEGIN {}-----\n".format(header)
             lines.append(pem_prefix)
@@ -91,7 +98,7 @@ class PointPerfectConfiguration:
             lines.append(pem_suffix)
             file.writelines(lines)
             pass
-        return os.path.join(directory, file_name)
+        return os.path.join(os.path.dirname(self.config_path), file_name)
 
 
 class PointPerfectModule(Node):
@@ -102,6 +109,7 @@ class PointPerfectModule(Node):
         self.declare_parameter("config_path", "")
         self.declare_parameter("region", "")
         self.declare_parameter("corrections_frame_id", "corrections")
+        self.declare_parameter("source", "ip")
         self.declare_parameter("save_logs", False)
         self.declare_parameter("log_level", LoggingLevel.Info)
         # endregion
@@ -122,9 +130,14 @@ class PointPerfectModule(Node):
         self.log_level: LoggingLevel = LoggingLevel(
             self.get_parameter("log_level").get_parameter_value().integer_value
         )
+        self.source: Literal["lband", "ip"] = (
+            self.get_parameter("source").get_parameter_value().string_value
+        )
         # endregion
 
-        self.__pc = PointPerfectConfiguration(self.region, self.config_path)
+        self.__pc = PointPerfectConfiguration(
+            self.region, self.config_path, self.source
+        )
         self.on_correction_message = self.create_publisher(
             CorrectionMessage, "corrections", 100
         )
@@ -167,6 +180,15 @@ class PointPerfectModule(Node):
             + "' with QoS "
             + str(message.qos)
         )
+        if message.topic == self.__pc.key_topic:
+            os.makedirs(os.path.dirname(self.__pc.config_path), exist_ok=True)
+            with open(
+                os.path.join(os.path.dirname(self.__pc.config_path), "lbandkeys.bin"),
+                "w",
+            ) as file:
+                file.write(message.payload.decode("utf-16"))
+                pass
+
         self.on_correction_message.publish(
             CorrectionMessage(
                 header=Header(
@@ -227,12 +249,33 @@ class PointPerfectModule(Node):
     def __connect(self) -> None:
         try:
             pc = self.__pc
-            self.__client.connect(host=pc.Host, port=pc.Port, keepalive=pc.keep_alive)
+            self.__client.connect(host=pc.host, port=pc.port, keepalive=pc.keep_alive)
             self.__client.loop_start()
         except Exception as ex:
             self.logger.error(
                 "Exception occured while connecting to PointPerfect client." + str(ex)
             )
+            if self.source == "lband" and os.path.exists(
+                os.path.join(os.path.dirname(self.__pc.config_path), "lbandkeys.bin")
+            ):
+                with open(
+                    os.path.join(
+                        os.path.dirname(self.__pc.config_path), "lbandkeys.bin"
+                    ),
+                    "r",
+                ) as file:
+                    keys = file.read().encode("utf-16-le")
+                    self.on_correction_message.publish(
+                        CorrectionMessage(
+                            header=Header(
+                                stamp=self.get_clock().now().to_msg(),
+                                frame_id=self._corrections_frame_id,
+                            ),
+                            message=keys,
+                        )
+                    )
+                    pass
+                self.logger.info("using offline keys")
 
     """
         Disconnects from MQTT client.
@@ -250,6 +293,27 @@ class PointPerfectModule(Node):
             self.logger.error(
                 "Exception occured while reconnecting to PointPerfect client"
             )
+            if self.source == "lband" and os.path.exists(
+                os.path.join(os.path.dirname(self.__pc.config_path), "lbandkeys.bin")
+            ):
+                with open(
+                    os.path.join(
+                        os.path.dirname(self.__pc.config_path), "lbandkeys.bin"
+                    ),
+                    "r",
+                ) as file:
+                    keys = file.read().encode("utf-16-le")
+                    self.on_correction_message.publish(
+                        CorrectionMessage(
+                            header=Header(
+                                stamp=self.get_clock().now().to_msg(),
+                                frame_id=self._corrections_frame_id,
+                            ),
+                            message=keys,
+                        )
+                    )
+                    pass
+                self.logger.info("using offline keys")
         return response
 
 
