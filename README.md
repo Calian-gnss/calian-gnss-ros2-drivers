@@ -75,7 +75,7 @@ Path: `src/calian_gnss_ros2/params/config.yaml`
 3. **`use_corrections (boolean)`:**
    - Flag indicating whether PPP-RTK corrections should be used.
 4. **`corrections_source (string)`:**
-   - The type of augmentation source used. Accepted values are `PointPerfect, Ntrip`. Only used when the `use_corrections` is **true**.
+   - The type of augmentation source used. Accepted values are `PointPerfect_Ip, PointPerfect_Lband, Ntrip`. Only used when the `use_corrections` is **true**.
 ### :three: Pointperfect parameters
 Path: `src/calian_gnss_ros2/params/pointperfect.yaml`
 
@@ -83,6 +83,8 @@ Path: `src/calian_gnss_ros2/params/pointperfect.yaml`
    - Path to PPP-RTK configuration file. details to obtain config file is given in PointPerfect Setup section.
 2. **`region (string)`:**
    - Region information. Accepted values are `us, eu, kr, au`.
+3. **`source (string)`:**
+   - PointPerfect source either Lband or Ip. Accepted values are `lband, ip`.
 ### :four: Ntrip parameters
 Path: `src/calian_gnss_ros2/params/ntrip.yaml`
 1. **`hostname`:**
@@ -118,7 +120,7 @@ To achieve centimeter-level accuracy in real-time, PPP-RTK corrections are essen
 - Create a new folder named **`pointperfect_files`** at the following directory: **`humble_ws/src/calian_gnss_ros2/pointperfect_files/`**.
 
 - Place the **`ucenter-config.json`** file inside the newly created **`pointperfect_files`** folder.
-- When you run the node, it will generate several files within the **`pointperfect_files`** folder, which are necessary for establishing a connection to the subscription service.
+- When you run the node, it will generate several files within the **`pointperfect_files`** folder, which are necessary for establishing a connection to the subscription service. 
 
 # Installation
 
@@ -173,7 +175,7 @@ The Calian GNSS ROS2 package provides flexibility in its configurations, and exa
 - If PointPerfect needs to be used as correction source, The steps mentioned in the PointPerfect Setup sections needs to be performed. If Ntrip needs to be used as correction source, The ntrip parameters needs to be changed to supply ntrip configuration.
 - Set the parameters in the params file (`src/calian_gnss_ros2/params/`):
   - **`use_corrections`** to True if the corrections service needs to be used.
-  - **`corrections_source` to either `Ntrip` or `PointPerfect`
+  - **`corrections_source` to either `Ntrip` or `PointPerfect_Ip` or `PointPerfect_Lband`
 - Build the workspace using **`colcon build`** and source the setup file with **`source install/setup.bash`**. Repeat this step for any changes in the launch file.
 - Launch the nodes using the following command:
    ```
