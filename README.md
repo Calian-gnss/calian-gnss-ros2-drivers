@@ -120,7 +120,8 @@ To achieve centimeter-level accuracy in real-time, PPP-RTK corrections are essen
 - Create a new folder named **`pointperfect_files`** at the following directory: **`humble_ws/src/calian_gnss_ros2/pointperfect_files/`**.
 
 - Place the **`ucenter-config.json`** file inside the newly created **`pointperfect_files`** folder.
-- When you run the node, it will generate several files within the **`pointperfect_files`** folder, which are necessary for establishing a connection to the subscription service. 
+- When you run the node, it will generate several files within the **`pointperfect_files`** folder, which are necessary for establishing a connection to the subscription service.
+- When connecting via L-band, the driver saves the keys to a file after successfully connecting to the MQTT service. These keys are used if the driver cannot establish a secure MQTT connection to the PointPerfect service. The receiver decrypts the corrections as long as the keys are valid. If the keys expire, the driver must reconnect to the MQTT service to obtain new keys.
 
 # Installation
 
