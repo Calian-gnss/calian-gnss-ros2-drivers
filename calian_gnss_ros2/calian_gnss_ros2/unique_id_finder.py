@@ -33,6 +33,7 @@ class UniqueIdFinder(Node):
                 for port in ports:
                     if port.description.find("Standard") != -1:
                         for baudrate in self.baudrates:
+                            standard_port = None
                             try:
                                 self.logger.debug("Connecting to port " + port.device + " using baud : " + str(baudrate))
                                 standard_port = serial.Serial(port.device, baudrate)
@@ -52,8 +53,8 @@ class UniqueIdFinder(Node):
                                 )
                                 pass
                             finally:
-                                standard_port.close()
-                                standard_port = None
+                                if standard_port is not None:
+                                    standard_port.close()
                             
                         self.logger.debug("Moving on to next port.")
                     pass

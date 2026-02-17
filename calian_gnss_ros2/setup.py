@@ -32,7 +32,6 @@ setup(
     data_files=package_files(data_files, ["launch/", "params/"]),
     install_requires=[
         "setuptools<=58.2.0",
-        "cs-events",
         "paho-mqtt",
         "pyubx2",
         "folium",

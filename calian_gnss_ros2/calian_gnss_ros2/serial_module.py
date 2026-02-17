@@ -1,10 +1,28 @@
 from collections import UserList
 import threading
 import time
-from typing import Literal
+from typing import Literal, Callable
 import serial
+
+
+class Event:
+    """Simple C#-style event: supports += to subscribe, () to invoke all handlers."""
+
+    def __init__(self):
+        self._handlers: list[Callable] = []
+
+    def __iadd__(self, handler: Callable):
+        self._handlers.append(handler)
+        return self
+
+    def __isub__(self, handler: Callable):
+        self._handlers.remove(handler)
+        return self
+
+    def __call__(self, *args, **kwargs):
+        for handler in self._handlers:
+            handler(*args, **kwargs)
 from serial.tools.list_ports import comports
-from events import Event
 import rclpy
 from pyubx2 import ubxreader, UBXMessage, POLL
 from pynmeagps import NMEAMessage
@@ -131,13 +149,12 @@ class UbloxSerial:
         ],
         rtk_mode: Literal["Disabled", "Heading_Base", "Rover"],
         use_corrections: bool = False,
-        corrections_source=Literal["PointPerfect_Ip", "Ntrip", "PointPerfect_Lband"],
     ):
         self.logger = SimplifiedLogger(rtk_mode + "_Serial")
         # Event handlers for Ublox, Nmea and RTCM messages.
-        self.ublox_message_found: Event[UBXMessage] = Event()
-        self.nmea_message_found: Event[NMEAMessage] = Event()
-        self.rtcm_message_found: Event[RTCMMessage] = Event()
+        self.ublox_message_found: Event = Event()
+        self.nmea_message_found: Event = Event()
+        self.rtcm_message_found: Event = Event()
 
         self.baudrate = baudrate
         self.unique_id = unique_id
@@ -146,7 +163,6 @@ class UbloxSerial:
         self.__status = GnssSignalStatus()
         self.__quality = None
         self.__use_corrections = use_corrections
-        self.__corrections_source = corrections_source
         self.__config_status = False
         self.__recent_ubx_message = dict[str, (float, UBXMessage)]()
         self.__service_constellations = 0
@@ -247,18 +263,6 @@ class UbloxSerial:
                     standard_port.close()
                     standard_port = None
 
-    def check_corrections_applied_status(self):
-        try:
-            time_of_message, ubxmessage = self.__recent_ubx_message["RXM-SPARTN"]
-            if (
-                time_of_message and time.time() - time_of_message < 60
-            ):  # return only if received in less than 60sec
-                return True
-            else:
-                return False
-        except:
-            return False
-
     """
         This method is responsible for setting up the serial port based on port_name and baudrate. It also starts a receive_thread specific to port_name serial port and configures a reader to parse the data
     """
@@ -341,9 +345,9 @@ class UbloxSerial:
             )
         )
         if (
-            (message.identity == "RXM-SPARTN" or message.identity == "RXM-RTCM")
+            (message.identity == "RXM-COR")
             and message.msgUsed == 2
-        ) or (message.identity != "RXM-SPARTN" and message.identity != "RXM-RTCM"):
+        ) or (message.identity != "RXM-COR"):
             self.__recent_ubx_message[message.identity] = (time.time(), message)
         self.ublox_message_found(message)
         pass
@@ -454,11 +458,7 @@ class UbloxSerial:
 
     def config(self) -> bool:
         config_successful = False
-        config_data = self.__get_config_set(
-            mode_of_operation=self.__rtk_mode,
-            use_corrections=self.__use_corrections,
-            corrections_source=self.__corrections_source,
-        )
+        config_data = self.__get_config_set(mode_of_operation=self.__rtk_mode, use_corrections=self.__use_corrections)
 
         # Sets the configs only to RAM. will reset if the antenna is power cycled.
         ubx: UBXMessage = UBXMessage.config_set(1, 0, config_data)
@@ -504,24 +504,16 @@ class UbloxSerial:
             # augmentations information
             augmentations_used = False
             if self.__use_corrections:
-                if (
-                    self.__corrections_source == "PointPerfect_Ip"
-                    or self.__corrections_source == "PointPerfect_Lband"
-                ):
-                    rxm_spartn = self.get_recent_ubx_message("RXM-SPARTN")
-                    augmentations_used = (
-                        True if rxm_spartn and rxm_spartn.msgUsed == 2 else False
-                    )
-                else:
-                    rxm_rtcm = self.get_recent_ubx_message("RXM-RTCM")
-                    augmentations_used = (
-                        True if rxm_rtcm and rxm_rtcm.msgUsed == 2 else False
-                    )
+                
+                rxm_cor = self.get_recent_ubx_message("RXM-COR")
+                augmentations_used = (
+                    True if rxm_cor and rxm_cor.msgUsed == 2 else False
+                )
 
             if self.__rtk_mode == "Rover":
-                rxm_rtcm = self.get_recent_ubx_message("RXM-RTCM")
+                rxm_cor = self.get_recent_ubx_message("RXM-COR")
                 augmentations_used = (
-                    True if rxm_rtcm and rxm_rtcm.msgUsed == 2 else False
+                    True if rxm_cor and rxm_cor.msgUsed == 2 else False
                 )
             self.__status.augmentations_used = augmentations_used
 
@@ -691,9 +683,6 @@ class UbloxSerial:
         self,
         mode_of_operation: Literal["Disabled", "Heading_Base", "Rover"],
         use_corrections: bool = False,
-        corrections_source: Literal[
-            "PointPerfect_Ip", "Ntrip", "PointPerfect_Lband"
-        ] = "PointPerfect_Ip",
     ) -> list:
         # Common configuration. Enabling Nmea, Ubx messages for both input and output.
         config_data = [
@@ -746,37 +735,18 @@ class UbloxSerial:
                     ("CFG_UART1INPROT_RTCM3X", 1),
                     ("CFG_MSGOUT_UBX_RXM_RTCM_UART1", 0x1),
                     ("CFG_MSGOUT_UBX_NAV_RELPOSNED_UART1", 1),
+                    ("CFG_MSGOUT_UBX_RXM_COR_UART1", 1),
                 ]
             )
 
         if use_corrections:
-            if corrections_source == "PointPerfect_Ip":
-                config_data.extend(
-                    [
-                        ("CFG_SPARTN_USE_SOURCE", 0),
-                        ("CFG_UART1INPROT_SPARTN", 1),
-                        ("CFG_MSGOUT_UBX_RXM_SPARTN_UART1", 1),
-                        ("CFG_MSGOUT_UBX_RXM_COR_UART1", 1),
-                    ]
-                )
-            elif corrections_source == "PointPerfect_Lband":
-                config_data.extend(
-                    [
-                        ("CFG_SPARTN_USE_SOURCE", 1),
-                        ("CFG_UART1INPROT_SPARTN", 1),
-                        ("CFG_MSGOUT_UBX_RXM_SPARTN_UART1", 1),
-                        ("CFG_MSGOUT_UBX_RXM_COR_UART1", 1),
-                    ]
-                )
-            else:
-                config_data.extend(
-                    [
-                        ("CFG_UART1INPROT_RTCM3X", 1),
-                        ("CFG_MSGOUT_UBX_RXM_RTCM_UART1", 0x1),
-                        ("CFG_MSGOUT_UBX_NAV_RELPOSNED_UART1", 1),
-                        ("CFG_MSGOUT_UBX_RXM_COR_UART1", 1),
-                    ]
-                )
+            config_data.extend(
+                [
+                    ("CFG_UART1INPROT_RTCM3X", 1),
+                    ("CFG_MSGOUT_UBX_NAV_RELPOSNED_UART1", 1),
+                    ("CFG_MSGOUT_UBX_RXM_COR_UART1", 1),
+                ]
+            )
 
         return config_data
 

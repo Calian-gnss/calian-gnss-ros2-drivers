@@ -5,7 +5,6 @@ import base64
 from rclpy.node import Node
 from sensor_msgs.msg import NavSatFix
 from std_msgs.msg import Header
-from calian_gnss_ros2.pointperfect_module import PointPerfectModule
 from calian_gnss_ros2.serial_module import UbloxSerial
 from pynmeagps import NMEAMessage
 from pyrtcm import RTCMReader
@@ -32,7 +31,6 @@ class Gps(Node):
         self.declare_parameter("baud_rate", 230400)
         # Parameter {config_path} needs to be present if this is True.
         self.declare_parameter("use_corrections", True)
-        self.declare_parameter("corrections_source", "PointPerfect_Ip")
         self.declare_parameter("save_logs", False)
         self.declare_parameter("log_level", LoggingLevel.Info)
         self.declare_parameter("frame_id", "gps")
@@ -47,11 +45,6 @@ class Gps(Node):
         )
         self.use_corrections = (
             self.get_parameter("use_corrections").get_parameter_value().bool_value
-        )
-        self.corrections_source: Literal[
-            "PointPerfect_Ip", "Ntrip", "PointPerfect_Lband"
-        ] = (
-            self.get_parameter("corrections_source").get_parameter_value().string_value
         )
         self.save_logs = (
             self.get_parameter("save_logs").get_parameter_value().bool_value
@@ -73,7 +66,6 @@ class Gps(Node):
             self.baud_rate,
             self.mode,
             self.use_corrections,
-            self.corrections_source,
         )
         # region Conditional attachments to events based on rover/base
         if self.mode == "Heading_Base":
@@ -114,28 +106,22 @@ class Gps(Node):
         self.health_timer = self.create_timer(1, self.get_health_status)
         # Timer to poll status messages from base/rover for every sec.
         self.status_timer = self.create_timer(1, self.get_status)
-        # Establishing PointPerfect connection only if it's enabled. Required parameters needs to be sent.
+        # Establishing Corrections connection only if it's enabled. Required parameters needs to be sent.
         if self.use_corrections:
             self.on_correction_message = self.create_subscription(
                 CorrectionMessage, "corrections", self.handle_correction_message, 100
             )
-            if "PointPerfect" in self.corrections_source:
-                self._pp_client = self.create_client(Empty, "restart")
-                self.reconnect_timer = self.create_timer(
-                    30, self.__reconnect_pointperfect_if_needed
-                )
-            else:
-                self.nmea_publisher = self.create_publisher(Sentence, "nmea", 100)
-                self.rtcm_publish_timer = self.create_timer(1, self.send_nmea_message)
-                self._recent_nmea_gga = ""
-                self.ser.nmea_message_found += self.handle_nmea_message
+            
+            self.nmea_publisher = self.create_publisher(Sentence, "nmea", 100)
+            self.rtcm_publish_timer = self.create_timer(1, self.send_nmea_message)
+            self._recent_nmea_gga = ""
+            self.ser.nmea_message_found += self.handle_nmea_message
 
         # endregion
         pass
 
     """
-        Handles the correction messages received from PointPerfect MQTT connection.
-
+        Handles the correction messages received from Corrections Source.
         The decoding of correction messages and applying them to the location is done by the antenna itself.
         Need to make sure we send entire message to the antenna without a delay, Since the correction messages are time dependent.
     """
@@ -157,7 +143,6 @@ class Gps(Node):
         if (
             nmeaMessage.identity == "GNGGA"
             and self.use_corrections
-            and self.corrections_source == "Ntrip"
         ):
             self._recent_nmea_gga = nmeaMessage.serialize().decode("utf-8")
         pass
@@ -245,24 +230,6 @@ class Gps(Node):
         for msg in pooled_msgs:
             self.rtcm_publisher.publish(msg)
             self.logger.debug("Published RTCM message -> " + str(msg.message))
-
-    """
-        Spartn keys are checked in the antenna. if no keys are present, pointperfect is reconnected to get a new pair of keys.
-    """
-
-    def __reconnect_pointperfect_if_needed(self):
-        if self.use_corrections:
-            # sptn_key = self.ser.poll_once("RXM", "RXM-SPARTN-KEY")
-            are_corrections_applied = self.ser.check_corrections_applied_status()
-            if not are_corrections_applied:
-                if (
-                    # sptn_key is not None
-                    # and sptn_key.numKeys == 0 and
-                    self._pp_client.service_is_ready()
-                ):
-                    self._pp_client.call_async(Empty.Request())
-                    pass
-
 
 def main():
     rclpy.init()

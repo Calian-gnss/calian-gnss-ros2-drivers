@@ -45,15 +45,6 @@ def generate_launch_description():
                 remappings=[("rtcm_corrections", "rtcm_topic")],
                 arguments=["Heading_Base"],
             ),
-            # Node(
-            #     package="calian_gnss_ros2",
-            #     executable="pointperfect",
-            #     name="pointperfect",
-            #     output="screen",
-            #     emulate_tty=True,
-            #     parameters=[corrections_config, logs_config],
-            #     namespace="calian_gnss",
-            # ),
             Node(
                 package="calian_gnss_ros2",
                 executable="ntrip_client",

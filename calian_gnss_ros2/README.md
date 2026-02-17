@@ -9,7 +9,6 @@ This repository contains the ROS 2 package for integrating Calian Smart GNSS Ant
 - [Requirements](#requirements)
 - [Nodes](#nodes)
 - [Parameters](#parameters)
-- [PointPerfect Setup](#pointperfect-setup)
 - [Installation](#installation)
 - [Usage](#usage)
 - [Contributing](#contributing)
@@ -46,15 +45,13 @@ Calian GNSS ROS 2 package contains multiple nodes. One or more nodes are used at
 ### :one: GPS
 The GPS node is responsible for the configuration of Calian GNSS Smart antenna based on the mode of operation and publishing location data, antenna feedback to the respective topics. It takes the **Log parameters** and **Config parameters** (Described in the Parameters section) as the input parameters.
 - Node arguments: Operating Mode (Accepted values are ****)
-### :two: PointPerfect
-The PointPerfect node is responsible to provide [PPP-RTK](https://www.u-blox.com/en/product/pointperfect) GNSS correction data to the Calian GNSS Smart antenna. It publishes the correction data to the **"corrections"** topic. It takes the  **Log parameters** and **Pointperfect parameters** as the input parameters.
-### :three: Ntrip
+### :two: Ntrip
 The Ntrip node is responsible to provide RTCM GNSS correction data to the Calian GNSS Smart antenna. It publishes the correction data to the **"corrections"** topic. It takes the **Log parameters** and **Ntrip parameters** as the input parameters.
-### :four: Remote Message Handler
+### :three: Remote Message Handler
 The RTCM Remote Message Handler node is responsible for providing RTCM messages from Ably to the Calian GNSS Smart antenna. From our windows **TruPrecision** Application, A Base can be setup at a static location and RTCM corrections can be published onto the remote ably server. Those messages can be transmitted to the antennas using this node. It takes the **Config parameters** as the input parameters.
-### :five: GPS Visualizer
+### :four: GPS Visualizer
 The GPS Visualizer node visualizes the location data of the Calian GNSS Smart antenna published in the **gps** topic onto the map.
-### :six: Unique Id Finder
+### :five: Unique Id Finder
 The Unique Id Finder node extracts the unique id of the antenna from the SEC-UNIQID Ubx message. It assumes the antennas have the default baudrate (230400).
 
 # Parameters
@@ -74,16 +71,7 @@ Path: `src/calian_gnss_ros2/params/config.yaml`
    - Baud rate for serial communication. Default value should be 230400.
 3. **`use_corrections (boolean)`:**
    - Flag indicating whether PPP-RTK corrections should be used.
-4. **`corrections_source (string)`:**
-   - The type of augmentation source used. Accepted values are `PointPerfect, Ntrip`. Only used when the `use_corrections` is **true**.
-### :three: Pointperfect parameters
-Path: `src/calian_gnss_ros2/params/pointperfect.yaml`
-
-1. **`config_path (string)`:**
-   - Path to PPP-RTK configuration file. details to obtain config file is given in PointPerfect Setup section.
-2. **`region (string)`:**
-   - Region information. Accepted values are `us, eu, kr, au`.
-### :four: Ntrip parameters
+### :three: Ntrip parameters
 Path: `src/calian_gnss_ros2/params/ntrip.yaml`
 1. **`hostname`:**
 	-	Hostname or IP address of the NTRIP server to connect to.
@@ -107,18 +95,6 @@ Path: `src/calian_gnss_ros2/params/ntrip.yaml`
 	- If the NTRIP caster is configured to use cert based authentication, you can use this option to specify the private key
 11. **`ca_cert`:**
 	- If the NTRIP caster uses self signed certs, or you need to use a different CA chain, this option can be used to specify a CA file
-
-# PointPerfect Setup
-
-To achieve centimeter-level accuracy in real-time, PPP-RTK corrections are essential. These corrections can be obtained through the Pointperfect subscription service, accessible at **`https://www.u-blox.com/en/product/pointperfect`**. Follow the steps below to acquire and configure the necessary files:
-- Visit the website to subscribe to the Pointperfect service.
-- Once subscribed, navigate to the "Credentials" tab under the "Location Thing Details" section on the website.
-- Download the ucenter configuration file provided and rename it to **`ucenter-config.json`**.
-
-- Create a new folder named **`pointperfect_files`** at the following directory: **`humble_ws/src/calian_gnss_ros2/pointperfect_files/`**.
-
-- Place the **`ucenter-config.json`** file inside the newly created **`pointperfect_files`** folder.
-- When you run the node, it will generate several files within the **`pointperfect_files`** folder, which are necessary for establishing a connection to the subscription service.
 
 # Installation
 
@@ -173,7 +149,6 @@ The Calian GNSS ROS2 package provides flexibility in its configurations, and exa
 - If PointPerfect needs to be used as correction source, The steps mentioned in the PointPerfect Setup sections needs to be performed. If Ntrip needs to be used as correction source, The ntrip parameters needs to be changed to supply ntrip configuration.
 - Set the parameters in the params file (`src/calian_gnss_ros2/params/`):
   - **`use_corrections`** to True if the corrections service needs to be used.
-  - **`corrections_source` to either `Ntrip` or `PointPerfect`
 - Build the workspace using **`colcon build`** and source the setup file with **`source install/setup.bash`**. Repeat this step for any changes in the launch file.
 - Launch the nodes using the following command:
    ```
