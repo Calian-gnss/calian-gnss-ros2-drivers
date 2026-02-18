@@ -7,6 +7,7 @@ it to the rover via the ``rtcm_topic``.
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 from calian_gnss_ros2.launch_common import config_path, logs_config_path, gps_node, visualizer_node
@@ -31,6 +32,6 @@ def generate_launch_description():
                 remappings=_RTCM_REMAP,
             ),
             gps_node(name="rover", mode="Rover", remappings=_RTCM_REMAP),
-            visualizer_node(),
+            visualizer_node(LaunchConfiguration("viz_port")),
         ]
     )

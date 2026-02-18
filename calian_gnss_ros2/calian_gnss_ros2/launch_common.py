@@ -67,8 +67,14 @@ def ntrip_node() -> Node:
     )
 
 
-def visualizer_node(port: int = 8080) -> Node:
-    """Return the GPS Visualizer Node action."""
+def visualizer_node(port=8080) -> Node:
+    """Return the GPS Visualizer Node action.
+
+    Parameters
+    ----------
+    port : int or LaunchConfiguration
+        HTTP port for the map visualizer. Defaults to 8080.
+    """
     return Node(
         package=_PKG,
         executable="calian_gnss_gps_visualizer",

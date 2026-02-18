@@ -246,7 +246,6 @@ ros2 launch calian_gnss_ros2 moving_baseline.launch.py
 **Published topics:**
 
 ```
-/calian_gnss/base/gps                  # sensor_msgs/NavSatFix
 /calian_gnss/base/gps_extended         # calian_gnss_ros2_msg/GnssSignalStatus
 /calian_gnss/base/antenna_health       # calian_gnss_ros2_msg/ReceiverHealthStatus
 /calian_gnss/base/rtcm_corrections     # calian_gnss_ros2_msg/CorrectionMessage (remapped → rtcm_topic)

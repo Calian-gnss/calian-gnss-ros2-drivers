@@ -72,17 +72,22 @@ class Event:
 
     def __init__(self):
         self._handlers: list[Callable] = []
+        self._lock = threading.RLock()
 
     def __iadd__(self, handler: Callable):
-        self._handlers.append(handler)
+        with self._lock:
+            self._handlers.append(handler)
         return self
 
     def __isub__(self, handler: Callable):
-        self._handlers.remove(handler)
+        with self._lock:
+            self._handlers.remove(handler)
         return self
 
     def __call__(self, *args, **kwargs):
-        for handler in self._handlers:
+        with self._lock:
+            handlers = list(self._handlers)
+        for handler in handlers:
             handler(*args, **kwargs)
 
 
@@ -684,7 +689,7 @@ class UbloxSerial:
                 ("CFG_MSGOUT_UBX_RXM_COR_UART1", 1),
             ])
 
-        if use_corrections:
+        if use_corrections and mode_of_operation != "Rover":
             config_data.extend([
                 ("CFG_UART1INPROT_RTCM3X", 1),
                 ("CFG_MSGOUT_UBX_NAV_RELPOSNED_UART1", 1),

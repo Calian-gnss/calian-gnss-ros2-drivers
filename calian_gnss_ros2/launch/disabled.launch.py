@@ -17,6 +17,6 @@ def generate_launch_description():
                                  description="HTTP port for the map visualizer"),
             gps_node(name="gps_publisher", mode="Disabled"),
             ntrip_node(),
-            visualizer_node(),
+            visualizer_node(LaunchConfiguration("viz_port")),
         ]
     )

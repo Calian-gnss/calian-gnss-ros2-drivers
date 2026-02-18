@@ -6,6 +6,7 @@ The base publishes RTCM corrections to the ``rtcm_topic`` which the rover consum
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
 
 from calian_gnss_ros2.launch_common import gps_node, ntrip_node, visualizer_node
 
@@ -20,6 +21,6 @@ def generate_launch_description():
             gps_node(name="base", mode="Heading_Base", remappings=_RTCM_REMAP),
             ntrip_node(),
             gps_node(name="rover", mode="Rover", remappings=_RTCM_REMAP),
-            visualizer_node(),
+            visualizer_node(LaunchConfiguration("viz_port")),
         ]
     )
