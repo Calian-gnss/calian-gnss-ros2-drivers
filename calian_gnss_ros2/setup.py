@@ -27,22 +27,24 @@ def package_files(data_files, directory_list):
 
 setup(
     name=package_name,
-    version="0.0.0",
+    version="1.0.0",
     packages=find_packages(),
     data_files=package_files(data_files, ["launch/", "params/"]),
     install_requires=[
         "setuptools<=58.2.0",
         "paho-mqtt",
         "pyubx2",
+        "pynmeagps",
+        "pyrtcm",
         "folium",
         "pyserial",
-        "sensor_msgs",
+        "ably",
     ],
     zip_safe=True,
-    maintainer="pkgodugunuri",
-    maintainer_email="pavan.godugunuri@gmail.com",
-    description="TODO: Package description",
-    license="TODO: License declaration",
+    maintainer="Calian GNSS",
+    maintainer_email="gnss.sales@calian.com",
+    description="ROS 2 driver for Calian Smart GNSS antennas",
+    license="MIT",
     tests_require=["pytest"],
     entry_points={
         "console_scripts": [
@@ -50,7 +52,6 @@ setup(
             "calian_gnss_gps_visualizer = calian_gnss_ros2.gps_visualizer:main",
             "remote_rtcm_corrections_handler = calian_gnss_ros2.remote_rtcm_corrections_handler:main",
             "unique_id_finder = calian_gnss_ros2.unique_id_finder:main",
-            "pointperfect = calian_gnss_ros2.pointperfect_module:main",
             "ntrip_client = calian_gnss_ros2.ntrip_module:main",
         ],
     },

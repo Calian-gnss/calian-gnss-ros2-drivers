@@ -1,18 +1,29 @@
+"""NTRIP client node — connects to an NTRIP caster and publishes RTCM corrections.
+
+Contains:
+- ``NTRIPClient`` - low-level socket wrapper with SSL, reconnect, and NMEA send.
+- ``NtripModule``  - ROS 2 node that bridges the client to the ``corrections`` topic.
+"""
+
 import threading
-from calian_gnss_ros2.logging import Logger, LoggingLevel, SimplifiedLogger
-import rclpy
-from rclpy.node import Node
-import socket
-from nmea_msgs.msg import Sentence
-from std_msgs.msg import Header
-from pynmeagps import NMEAMessage
-from pyrtcm import RTCMMessage
-from calian_gnss_ros2_msg.msg import CorrectionMessage
-import ssl
 import time
 import base64
 import socket
 import select
+
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import Header
+from nmea_msgs.msg import Sentence
+import ssl
+
+from calian_gnss_ros2_msg.msg import CorrectionMessage
+from calian_gnss_ros2.logging import setup_node_logging
+
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
 
 _CHUNK_SIZE = 1024
 _SOURCETABLE_RESPONSES = ["SOURCETABLE 200 OK"]
@@ -20,47 +31,51 @@ _SUCCESS_RESPONSES = ["ICY 200 OK", "HTTP/1.0 200 OK", "HTTP/1.1 200 OK"]
 _UNAUTHORIZED_RESPONSES = ["401"]
 
 
-class NTRIPClient:
+# ---------------------------------------------------------------------------
+# NTRIPClient
+# ---------------------------------------------------------------------------
 
-    # Public constants
+
+class NTRIPClient:
+    """Low-level NTRIP v1/v2 socket client with reconnect and NMEA relay."""
+
     DEFAULT_RECONNECT_ATTEMPT_MAX = 10
-    DEFAULT_RECONNECT_ATEMPT_WAIT_SECONDS = 5
+    DEFAULT_RECONNECT_ATTEMPT_WAIT_SECONDS = 5
     DEFAULT_RTCM_TIMEOUT_SECONDS = 4
 
-    def __init__(self, host, port, mountpoint, ntrip_version, username, password):
-        self._logger = SimplifiedLogger("ntrip_client")
+    def __init__(self, host, port, mountpoint, ntrip_version, username, password, logger):
+        self._logger = logger
         self._logerr = self._logger.error
         self._logwarn = self._logger.warn
         self._loginfo = self._logger.info
         self._logdebug = self._logger.debug
 
-        # Save the server info
         self._host = host
         self._port = port
         self._mountpoint = mountpoint
         self._ntrip_version = ntrip_version
+
         if username is not None and password is not None:
             self._basic_credentials = base64.b64encode(
-                "{}:{}".format(username, password).encode("utf-8")
+                f"{username}:{password}".encode("utf-8")
             ).decode("utf-8")
         else:
             self._basic_credentials = None
 
-        # Initialize this so we don't throw an exception when closing
         self._raw_socket = None
         self._server_socket = None
 
-        # Public SSL configuration
+        # SSL configuration (public)
         self.ssl = False
         self.cert = None
         self.key = None
         self.ca_cert = None
 
-        # Setup some state
+        # State
         self._shutdown = False
         self._connected = False
 
-        # Private reconnect info
+        # Reconnect bookkeeping
         self._reconnect_attempt_count = 0
         self._nmea_send_failed_count = 0
         self._nmea_send_failed_max = 5
@@ -69,218 +84,183 @@ class NTRIPClient:
         self._first_rtcm_received = False
         self._recv_rtcm_last_packet_timestamp = 0
 
-        # Public reconnect info
+        # Public reconnect tunables
         self.reconnect_attempt_max = self.DEFAULT_RECONNECT_ATTEMPT_MAX
-        self.reconnect_attempt_wait_seconds = self.DEFAULT_RECONNECT_ATEMPT_WAIT_SECONDS
+        self.reconnect_attempt_wait_seconds = self.DEFAULT_RECONNECT_ATTEMPT_WAIT_SECONDS
         self.rtcm_timeout_seconds = self.DEFAULT_RTCM_TIMEOUT_SECONDS
 
-    def connect(self):
-        # Create a socket object that we will use to connect to the server
+    # ------------------------------------------------------------------
+    # Connection management
+    # ------------------------------------------------------------------
+
+    def connect(self) -> bool:
+        """Open a socket to the NTRIP caster and perform the HTTP handshake."""
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._server_socket.settimeout(5)
 
-        # Connect the socket to the server
         try:
             self._server_socket.connect((self._host, self._port))
         except Exception as e:
-            self._logerr(
-                "Unable to connect socket to server at http://{}:{}".format(
-                    self._host, self._port
-                )
-            )
-            self._logerr("Exception: {}".format(str(e)))
+            self._logerr(f"Unable to connect to http://{self._host}:{self._port}")
+            self._logerr(f"Exception: {e}")
             return False
 
-        # If SSL, wrap the socket
+        # SSL wrapping
         if self.ssl:
-            # Configre the context based on the config
-            self._ssl_context = ssl.create_default_context()
+            ssl_ctx = ssl.create_default_context()
             if self.cert:
-                self._ssl_context.load_cert_chain(self.cert, self.key)
+                ssl_ctx.load_cert_chain(self.cert, self.key)
             if self.ca_cert:
-                self._ssl_context.load_verify_locations(self.ca_cert)
-
-            # Save the old socket for later just in case, and create a new SSL socket
+                ssl_ctx.load_verify_locations(self.ca_cert)
             self._raw_socket = self._server_socket
-            self._server_socket = self._ssl_context.wrap_socket(
+            self._server_socket = ssl_ctx.wrap_socket(
                 self._raw_socket, server_hostname=self._host
             )
 
-        # Send the HTTP Request
+        # Send HTTP request
         try:
             self._server_socket.send(self._form_request())
         except Exception as e:
-            self._logerr(
-                "Unable to send request to server at http://{}:{}".format(
-                    self._host, self._port
-                )
-            )
-            self._logerr("Exception: {}".format(str(e)))
+            self._logerr(f"Unable to send request to http://{self._host}:{self._port}")
+            self._logerr(f"Exception: {e}")
             return False
 
-        # Get the response from the server
+        # Read response
         response = ""
         try:
             response = self._server_socket.recv(_CHUNK_SIZE).decode("ISO-8859-1")
         except Exception as e:
-            self._logerr(
-                "Unable to read response from server at http://{}:{}".format(
-                    self._host, self._port
-                )
-            )
-            self._logerr("Exception: {}".format(str(e)))
+            self._logerr(f"Unable to read response from http://{self._host}:{self._port}")
+            self._logerr(f"Exception: {e}")
             return False
 
-        # Properly handle the response
-        if any(success in response for success in _SUCCESS_RESPONSES):
+        # Check for success
+        if any(s in response for s in _SUCCESS_RESPONSES):
             self._connected = True
 
-        # Some debugging hints about the kind of error we received
+        # Diagnose known errors
         known_error = False
-        if any(sourcetable in response for sourcetable in _SOURCETABLE_RESPONSES):
+        if any(s in response for s in _SOURCETABLE_RESPONSES):
             self._logwarn(
-                "Received sourcetable response from the server. This probably means the mountpoint specified is not valid"
+                "Received sourcetable response — the mountpoint is probably invalid."
             )
             known_error = True
-        elif any(unauthorized in response for unauthorized in _UNAUTHORIZED_RESPONSES):
+        elif any(s in response for s in _UNAUTHORIZED_RESPONSES):
             self._logwarn(
-                "Received unauthorized response from the server. Check your username, password, and mountpoint to make sure they are correct."
+                "Received 401 Unauthorized — check username, password, and mountpoint."
             )
             known_error = True
-        elif not self._connected and (
-            self._ntrip_version == None or self._ntrip_version == ""
-        ):
+        elif not self._connected and not self._ntrip_version:
             self._logwarn(
-                "Received unknown error from the server. Note that the NTRIP version was not specified in the launch file. This is not necesarilly the cause of this error, but it may be worth checking your NTRIP casters documentation to see if the NTRIP version needs to be specified."
+                "Unknown error — consider specifying the NTRIP version in your config."
             )
             known_error = True
 
         if known_error or not self._connected:
             self._logerr(
-                "Invalid response received from http://{}:{}/{}".format(
-                    self._host, self._port, self._mountpoint
-                )
+                f"Invalid response from http://{self._host}:{self._port}/{self._mountpoint}"
             )
-            self._logerr("Response: {}".format(response))
+            self._logerr(f"Response: {response}")
             return False
-        else:
-            self._loginfo(
-                "Connected to http://{}:{}/{}".format(
-                    self._host, self._port, self._mountpoint
-                )
-            )
-            return True
 
-    def disconnect(self):
-        # Disconnect the socket
+        self._loginfo(
+            f"Connected to http://{self._host}:{self._port}/{self._mountpoint}"
+        )
+        return True
+
+    def disconnect(self) -> None:
+        """Gracefully shut down and close the socket."""
         self._connected = False
-        try:
-            if self._server_socket:
-                self._server_socket.shutdown(socket.SHUT_RDWR)
-            if self._raw_socket:
-                self._raw_socket.shutdown(socket.SHUT_RDWR)
-        except Exception as e:
-            self._logdebug(
-                "Encountered exception when shutting down the socket. This can likely be ignored"
-            )
-            self._logdebug("Exception: {}".format(e))
-        try:
-            if self._server_socket:
-                self._server_socket.close()
-            if self._raw_socket:
-                self._raw_socket.close()
-        except Exception as e:
-            self._logdebug(
-                "Encountered exception when closing the socket. This can likely be ignored"
-            )
-            self._logdebug("Exception: {}".format(e))
+        for sock in (self._server_socket, self._raw_socket):
+            try:
+                if sock:
+                    sock.shutdown(socket.SHUT_RDWR)
+            except Exception:
+                pass
+            try:
+                if sock:
+                    sock.close()
+            except Exception:
+                pass
 
-    def reconnect(self):
-        if self._connected:
-            while not self._shutdown:
-                self._reconnect_attempt_count += 1
-                self.disconnect()
-                connect_success = self.connect()
-                if (
-                    not connect_success
-                    and self._reconnect_attempt_count < self.reconnect_attempt_max
-                ):
-                    self._logerr(
-                        "Reconnect to http://{}:{} failed. Retrying in {} seconds".format(
-                            self._host, self._port, self.reconnect_attempt_wait_seconds
-                        )
-                    )
-                    time.sleep(self.reconnect_attempt_wait_seconds)
-                elif self._reconnect_attempt_count >= self.reconnect_attempt_max:
-                    self._reconnect_attempt_count = 0
-                    raise Exception(
-                        "Reconnect was attempted {} times, but never succeeded".format(
-                            self._reconnect_attempt_count
-                        )
-                    )
-                    break
-                elif connect_success:
-                    self._reconnect_attempt_count = 0
-                    break
-        else:
-            self._logdebug("Reconnect called while still connected, ignoring")
-
-    def send_nmea(self, sentence):
+    def reconnect(self) -> None:
+        """Disconnect and reconnect, retrying up to ``reconnect_attempt_max`` times."""
         if not self._connected:
-            self._logwarn("NMEA sent before client was connected, discarding NMEA")
+            self._logdebug("Reconnect called while already disconnected, ignoring")
             return
 
-        # Not sure if this is the right thing to do, but python will escape the return characters at the end of the string, so do this manually
+        while not self._shutdown:
+            self._reconnect_attempt_count += 1
+            self.disconnect()
+            if self.connect():
+                self._reconnect_attempt_count = 0
+                break
+            if self._reconnect_attempt_count >= self.reconnect_attempt_max:
+                self._reconnect_attempt_count = 0
+                raise ConnectionError(
+                    f"Reconnect failed after {self.reconnect_attempt_max} attempts"
+                )
+            self._logerr(
+                f"Reconnect failed. Retrying in {self.reconnect_attempt_wait_seconds}s"
+            )
+            time.sleep(self.reconnect_attempt_wait_seconds)
+
+    # ------------------------------------------------------------------
+    # NMEA send
+    # ------------------------------------------------------------------
+
+    def send_nmea(self, sentence: str) -> None:
+        """Send an NMEA sentence to the NTRIP caster (for VRS)."""
+        if not self._connected:
+            self._logwarn("NMEA sent before client was connected, discarding")
+            return
+
         if sentence[-4:] == "\\r\\n":
             sentence = sentence[:-4] + "\r\n"
         elif sentence[-2:] != "\r\n":
-            sentence = sentence + "\r\n"
+            sentence += "\r\n"
 
-        # Encode the data and send it to the socket
         try:
             self._server_socket.send(sentence.encode("utf-8"))
         except Exception as e:
-            self._logwarn("Unable to send NMEA sentence to server.")
-            self._logwarn("Exception: {}".format(str(e)))
+            self._logwarn(f"Unable to send NMEA: {e}")
             self._nmea_send_failed_count += 1
             if self._nmea_send_failed_count >= self._nmea_send_failed_max:
                 self._logwarn(
-                    "NMEA sentence failed to send to server {} times, restarting".format(
-                        self._nmea_send_failed_count
-                    )
+                    f"NMEA send failed {self._nmea_send_failed_count} times, reconnecting"
                 )
                 self.reconnect()
                 self._nmea_send_failed_count = 0
-                self.send_nmea(sentence)  # Try sending the NMEA sentence again
+                self.send_nmea(sentence)
 
-    def recv_rtcm(self):
+    # ------------------------------------------------------------------
+    # RTCM receive
+    # ------------------------------------------------------------------
+
+    def recv_rtcm(self) -> bytes | None:
+        """Return available RTCM data from the socket, or ``None``."""
         if not self._connected:
-            self._logwarn(
-                "RTCM requested before client was connected, returning empty list"
-            )
+            self._logwarn("RTCM requested before connected, returning None")
             return None
 
-        # If it has been too long since we received an RTCM packet, reconnect
+        # Timeout check
         if (
-            time.time() - self.rtcm_timeout_seconds
+            self._first_rtcm_received
+            and time.time() - self.rtcm_timeout_seconds
             >= self._recv_rtcm_last_packet_timestamp
-            and self._first_rtcm_received
         ):
             self._logerr(
-                "RTCM data not received for {} seconds, reconnecting".format(
-                    self.rtcm_timeout_seconds
-                )
+                f"RTCM data not received for {self.rtcm_timeout_seconds}s, reconnecting"
             )
             self.reconnect()
             self._first_rtcm_received = False
 
-        # Check if there is any data available on the socket
+        # Check for available data
         read_sockets, _, _ = select.select([self._server_socket], [], [], 0)
         if not read_sockets:
             return None
 
-        # Since we only ever pass the server socket to the list of read sockets, we can just read from that
-        # Read all available data into a buffer
+        # Read all available data
         data = b""
         while True:
             try:
@@ -288,86 +268,86 @@ class NTRIPClient:
                 data += chunk
                 if len(chunk) < _CHUNK_SIZE:
                     break
-            except Exception as e:
-                self._logerr(
-                    "Error while reading {} bytes from socket".format(_CHUNK_SIZE)
-                )
+            except Exception:
                 if not self._socket_is_open():
-                    self._logerr("Socket appears to be closed. Reconnecting")
+                    self._logerr("Socket closed. Reconnecting")
                     self.reconnect()
                     return None
                 break
-        self._logdebug("Read {} bytes".format(len(data)))
 
-        # If 0 bytes were read from the socket even though we were told data is available multiple times,
-        # it can be safely assumed that we can reconnect as the server has closed the connection
         if len(data) == 0:
             self._read_zero_bytes_count += 1
             if self._read_zero_bytes_count >= self._read_zero_bytes_max:
                 self._logwarn(
-                    "Reconnecting because we received 0 bytes from the socket even though it said there was data available {} times".format(
-                        self._read_zero_bytes_count
-                    )
+                    f"Received 0 bytes {self._read_zero_bytes_count} times, reconnecting"
                 )
                 self.reconnect()
                 self._read_zero_bytes_count = 0
                 return None
         else:
-            # Looks like we received valid data, so note when the data was received
             self._recv_rtcm_last_packet_timestamp = time.time()
             self._first_rtcm_received = True
 
-        # Send the data
         return data
 
-    def shutdown(self):
-        # Set some state, and then disconnect
+    def shutdown(self) -> None:
+        """Signal the client to shut down and disconnect."""
         self._shutdown = True
         self.disconnect()
 
-    def _form_request(self):
-        if self._ntrip_version != None and self._ntrip_version != "":
-            request_str = "GET /{} HTTP/1.0\r\nNtrip-Version: {}\r\nUser-Agent: NTRIP ntrip_client_ros\r\n".format(
-                self._mountpoint, self._ntrip_version
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
+
+    def _form_request(self) -> bytes:
+        """Build the HTTP GET request for the NTRIP caster."""
+        if self._ntrip_version:
+            request = (
+                f"GET /{self._mountpoint} HTTP/1.0\r\n"
+                f"Ntrip-Version: {self._ntrip_version}\r\n"
+                "User-Agent: NTRIP ntrip_client_ros\r\n"
             )
         else:
-            request_str = (
-                "GET /{} HTTP/1.0\r\nUser-Agent: NTRIP ntrip_client_ros\r\n".format(
-                    self._mountpoint
-                )
+            request = (
+                f"GET /{self._mountpoint} HTTP/1.0\r\n"
+                "User-Agent: NTRIP ntrip_client_ros\r\n"
             )
         if self._basic_credentials is not None:
-            request_str += "Authorization: Basic {}\r\n".format(self._basic_credentials)
-        request_str += "\r\n"
-        return request_str.encode("utf-8")
+            request += f"Authorization: Basic {self._basic_credentials}\r\n"
+        request += "\r\n"
+        return request.encode("utf-8")
 
-    def _socket_is_open(self):
+    def _socket_is_open(self) -> bool:
+        """Check whether the socket is still open without consuming data."""
         try:
-            # this will try to read bytes without blocking and also without removing them from buffer (peek only)
             data = self._server_socket.recv(
                 _CHUNK_SIZE, socket.MSG_DONTWAIT | socket.MSG_PEEK
             )
-            if len(data) == 0:
-                return False
+            return len(data) != 0
         except BlockingIOError:
-            return True  # socket is open and reading from it would block
+            return True
         except ConnectionResetError:
             self._logwarn("Connection reset by peer")
-            return False  # socket was closed for some other reason
-        except socket.timeout:
-            return True  # timeout likely means that the socket is still open
-        except Exception as e:
-            self._logwarn("Socket appears to be closed")
-            self._logwarn("Exception: {}".format(e))
             return False
-        return True
+        except socket.timeout:
+            return True
+        except Exception as e:
+            self._logwarn(f"Socket appears closed: {e}")
+            return False
+
+
+# ---------------------------------------------------------------------------
+# NtripModule (ROS 2 node)
+# ---------------------------------------------------------------------------
 
 
 class NtripModule(Node):
+    """ROS 2 node that runs an NTRIPClient and publishes RTCM corrections."""
+
     def __init__(self) -> None:
         super().__init__("ntrip_module")
 
-        # region Parameters declaration
+        # ---- Parameters -------------------------------------------------
         self.declare_parameters(
             namespace="",
             parameters=[
@@ -383,96 +363,62 @@ class NtripModule(Node):
                 ("cert", ""),
                 ("key", ""),
                 ("ca_cert", ""),
-                ("save_logs", False),
-                ("log_level", 20),
             ],
         )
-        # endregion
 
-        # region Parameters Initialization
-        self.host = self.get_parameter("hostname").get_parameter_value().string_value
-        self.port = self.get_parameter("port").get_parameter_value().integer_value
-        self.mountpoint = (
-            self.get_parameter("mountpoint").get_parameter_value().string_value
-        )
-        self.username = (
-            self.get_parameter("username").get_parameter_value().string_value
-        )
-        self.password = (
-            self.get_parameter("password").get_parameter_value().string_value
-        )
-        self.ntrip_version = (
-            self.get_parameter("ntrip_version").get_parameter_value().string_value
-        )
-        self._frame_id = (
-            self.get_parameter("frame_id").get_parameter_value().string_value
-        )
-        self.save_logs = (
-            self.get_parameter("save_logs").get_parameter_value().bool_value
-        )
-        self.log_level: LoggingLevel = LoggingLevel(
-            self.get_parameter("log_level").get_parameter_value().integer_value
-        )
-        # endregion
+        host = self.get_parameter("hostname").get_parameter_value().string_value
+        port = self.get_parameter("port").get_parameter_value().integer_value
+        mountpoint = self.get_parameter("mountpoint").get_parameter_value().string_value
+        username = self.get_parameter("username").get_parameter_value().string_value
+        password = self.get_parameter("password").get_parameter_value().string_value
+        ntrip_version = self.get_parameter("ntrip_version").get_parameter_value().string_value
+        self._frame_id = self.get_parameter("frame_id").get_parameter_value().string_value
 
-        internal_logger = Logger(self.get_logger())
-        internal_logger.toggle_logs(self.save_logs)
-        internal_logger.setLevel(self.log_level)
-        self.logger = SimplifiedLogger("NtripClient")
+        # ---- Logging (shared helper) ------------------------------------
+        _, self.logger = setup_node_logging(self, "NtripClient")
 
-        # Initialize the client
+        # ---- NTRIP client ------------------------------------------------
         self._client = NTRIPClient(
-            host=self.host,
-            port=self.port,
-            ntrip_version=self.ntrip_version,
-            mountpoint=self.mountpoint,
-            username=self.username,
-            password=self.password,
+            host=host,
+            port=port,
+            ntrip_version=ntrip_version,
+            mountpoint=mountpoint,
+            username=username,
+            password=password,
+            logger=self.logger
         )
-
         self._client.ssl = self.get_parameter("ssl").get_parameter_value().bool_value
-        self._client.cert = (
-            self.get_parameter("cert").get_parameter_value().string_value
-        )
-        self._client.key = self.get_parameter("key").get_parameter_value().string_value
-        self._client.ca_cert = (
-            self.get_parameter("ca_cert").get_parameter_value().string_value
-        )
-        # Get some SSL parameters for the NTRIP client
-        if self._client.cert == "None" or self._client.cert == "":
-            self._client.cert = None
-        if self._client.key == "None" or self._client.key == "":
-            self._client.key = None
-        if self._client.ca_cert == "None" or self._client.ca_cert == "":
-            self._client.ca_cert = None
+        self._client.cert = self.get_parameter("cert").get_parameter_value().string_value or None
+        self._client.key = self.get_parameter("key").get_parameter_value().string_value or None
+        self._client.ca_cert = self.get_parameter("ca_cert").get_parameter_value().string_value or None
 
-        # Setup our subscriber
+        # ---- ROS interfaces -----------------------------------------------
         self._nmea_sub = self.create_subscription(
-            Sentence, "nmea", self.subscribe_nmea, 10
+            Sentence, "nmea", self._subscribe_nmea, 10
         )
-
-        self.on_correction_message = self.create_publisher(
+        self._correction_pub = self.create_publisher(
             CorrectionMessage, "corrections", 100
         )
-        self._initialized = False
-        _ = threading.Thread(
-            target=self.__process, name="ntrip_process_thread", daemon=True
-        ).start()
-        pass
 
-    def __process(self):
+        self._initialized = False
+        threading.Thread(
+            target=self._process_loop, name="ntrip_process_thread", daemon=True
+        ).start()
+
+    # ------------------------------------------------------------------
+
+    def _process_loop(self) -> None:
+        """Background loop: connect then continuously receive RTCM."""
         while rclpy.ok():
             if not self._initialized:
-                if not self._client.connect():
-                    self.logger.error("Unable to connect to NTRIP server")
-                    self._initialized = False
-                    pass
-                else:
+                if self._client.connect():
                     self._initialized = True
+                else:
+                    self.logger.error("Unable to connect to NTRIP server")
             else:
                 data = self._client.recv_rtcm()
                 if data is not None:
-                    self.on_correction_message.publish(
+                    self._correction_pub.publish(
                         CorrectionMessage(
                             header=Header(
                                 stamp=self.get_clock().now().to_msg(),
@@ -481,13 +427,16 @@ class NtripModule(Node):
                             message=data,
                         )
                     )
-
             time.sleep(0.5)
-        pass
 
-    def subscribe_nmea(self, nmea):
-        # Just extract the NMEA from the message, and send it right to the server
+    def _subscribe_nmea(self, nmea: Sentence) -> None:
+        """Forward the received NMEA sentence to the NTRIP caster."""
         self._client.send_nmea(nmea.sentence)
+
+
+# ------------------------------------------------------------------
+# Entry point
+# ------------------------------------------------------------------
 
 
 def main():
@@ -497,11 +446,11 @@ def main():
         rclpy.spin(ntrip)
     except KeyboardInterrupt:
         pass
-    except:
-        pass
+    except Exception as e:
+        ntrip.logger.error(f"Unexpected error: {e}")
     finally:
         ntrip.destroy_node()
-    # rclpy.shutdown()
+        rclpy.shutdown()
 
 
 if __name__ == "__main__":

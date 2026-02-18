@@ -1,60 +1,22 @@
-import os
-from launch import LaunchDescription
-from launch_ros.actions import Node
-from ament_index_python.packages import get_package_share_directory
+"""Launch: Disabled (single-antenna) configuration.
 
-#     Log Level values for different logging levels
-#     NotSet = 0
-#     Debug = 10
-#     Info = 20
-#     Warn = 30
-#     Error = 40
-#     Critical = 50
+Starts a GPS node in Disabled mode alongside the NTRIP client and visualizer.
+"""
+
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
+
+from calian_gnss_ros2.launch_common import gps_node, ntrip_node, visualizer_node
 
 
 def generate_launch_description():
-    config = os.path.join(
-        get_package_share_directory("calian_gnss_ros2"), "params", "config.yaml"
-    )
-
-    pp_corrections_config = os.path.join(
-        get_package_share_directory("calian_gnss_ros2"), "params", "pointperfect.yaml"
-    )
-    ntrip_corrections_config = os.path.join(
-        get_package_share_directory("calian_gnss_ros2"), "params", "ntrip.yaml"
-    )
-    logs_config = os.path.join(
-        get_package_share_directory("calian_gnss_ros2"), "params", "logs.yaml"
-    )
     return LaunchDescription(
         [
-            Node(
-                package="calian_gnss_ros2",
-                executable="calian_gnss_gps",
-                name="gps_publisher",
-                output="screen",
-                emulate_tty=True,
-                parameters=[config, logs_config],
-                namespace="calian_gnss",
-                arguments=["Disabled"],
-            ),
-            Node(
-                package="calian_gnss_ros2",
-                executable="ntrip_client",
-                name="ntrip_client",
-                output="screen",
-                emulate_tty=True,
-                parameters=[ntrip_corrections_config, logs_config],
-                namespace="calian_gnss",
-            ),
-            Node(
-                package="calian_gnss_ros2",
-                executable="calian_gnss_gps_visualizer",
-                name="gps_visualizer",
-                output="screen",
-                emulate_tty=False,
-                parameters=[{"port": 8080}],
-                namespace="calian_gnss",
-            ),
+            DeclareLaunchArgument("viz_port", default_value="8080",
+                                 description="HTTP port for the map visualizer"),
+            gps_node(name="gps_publisher", mode="Disabled"),
+            ntrip_node(),
+            visualizer_node(),
         ]
     )

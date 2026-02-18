@@ -1,33 +1,41 @@
+# ---------------------------------------------------------------
+# Calian GNSS ROS 2 — antenna configuration
+# ---------------------------------------------------------------
+# Each top-level key under ``calian_gnss`` corresponds to a node
+# name used in a launch file.  Set ``unique_id`` to the value
+# printed by the ``unique_id_finder`` node for each antenna.
+# ---------------------------------------------------------------
+
 calian_gnss:
   base:
     ros__parameters:
       use_corrections: True
       baud_rate: 230400
-      unique_id: "EA 41 EA 98 9A"
-    
+      unique_id: "<YOUR_BASE_UNIQUE_ID>"
+
 calian_gnss:
   rover:
     ros__parameters:
       use_corrections: False
       baud_rate: 230400
-      unique_id: "59 40 E2 1D 5A"
+      unique_id: "<YOUR_ROVER_UNIQUE_ID>"
 
 calian_gnss:
   gps_publisher:
     ros__parameters:
       use_corrections: True
       baud_rate: 230400
-      unique_id: "D5 F1 FE 0F 5C"
+      unique_id: "<YOUR_ANTENNA_UNIQUE_ID>"
 
 calian_gnss:
   gps:
     ros__parameters:
       use_corrections: True
       baud_rate: 230400
-      unique_id: "D5 F1 FE 0F 5C"
+      unique_id: "<YOUR_ANTENNA_UNIQUE_ID>"
 
 calian_gnss:
   rtcm_handler:
     ros__parameters:
       key: "Wap5SA.O5VD4g:t2ltWLfva3gp5kituU5M4f9JL83BIwioTV1hGOjrSLU"
-      channel: "Rtcm1"
+      channel: "<YOUR_ABLY_CHANNEL_NAME>"

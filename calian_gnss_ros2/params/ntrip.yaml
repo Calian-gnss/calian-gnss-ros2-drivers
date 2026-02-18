@@ -1,8 +1,15 @@
+# ---------------------------------------------------------------
+# NTRIP client configuration
+# ---------------------------------------------------------------
+# Set hostname, mountpoint, username, and password to match your
+# NTRIP caster subscription.
+# ---------------------------------------------------------------
+
 calian_gnss:
   ntrip_client:
     ros__parameters:
-      hostname: "99.209.252.98"
+      hostname: "<YOUR_NTRIP_HOST>"
       port: 2101
-      mountpoint: "Calian1"
-      username: "Pavan"
-      password: "HelloPavan"
+      mountpoint: "<YOUR_MOUNTPOINT>"
+      username: "<YOUR_USERNAME>"
+      password: "<YOUR_PASSWORD>"

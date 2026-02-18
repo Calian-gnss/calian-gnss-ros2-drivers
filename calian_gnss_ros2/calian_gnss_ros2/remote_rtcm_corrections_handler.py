@@ -1,6 +1,16 @@
+"""Remote RTCM corrections handler — receives RTCM from Ably real-time and publishes on ROS.
+
+Used in the **static baseline** configuration where a Windows TruPrecision
+application pushes RTCM messages to an Ably channel.
+"""
+
 import base64
-import rclpy
 import asyncio
+import threading
+
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import Header
 from ably import AblyRealtime
 from ably.types.message import Message
 from ably.types.connectionstate import (
@@ -9,106 +19,125 @@ from ably.types.connectionstate import (
     ConnectionStateChange,
 )
 
-from std_msgs.msg import Header
-from rclpy.node import Node
-from pyrtcm import RTCMReader
 from calian_gnss_ros2_msg.msg import CorrectionMessage
-from calian_gnss_ros2.logging import Logger, LoggingLevel, SimplifiedLogger
+from calian_gnss_ros2.logging import setup_node_logging
 
 
 class RemoteRtcmCorrectionsHandler(Node):
+    """ROS 2 node that subscribes to an Ably channel and publishes RTCM corrections."""
+
     def __init__(self) -> None:
         super().__init__("remote_rtcm_corrections_handler")
 
-        # region Parameters declaration
-        self.declare_parameter("key", "")
-        self.declare_parameter("channel", "")
-        self.declare_parameter("save_logs", False)
-        self.declare_parameter("log_level", LoggingLevel.Info)
-        # endregion
+        # ---- Parameters --------------------------------------------------
+        self.declare_parameters(
+            namespace="",
+            parameters=[
+                ("key", ""),
+                ("channel", ""),
+                ("frame_id", "rtcm"),
+            ],
+        )
 
-        # region Parameters Initialization
-        self.key = self.get_parameter("key").get_parameter_value().string_value
-        self.channel = self.get_parameter("channel").get_parameter_value().string_value
-        self.save_logs = (
-            self.get_parameter("save_logs").get_parameter_value().bool_value
-        )
-        self.log_level: LoggingLevel = LoggingLevel(
-            self.get_parameter("log_level").get_parameter_value().integer_value
-        )
-        # endregion
-        internal_logger = Logger(self.get_logger())
-        internal_logger.toggle_logs(self.save_logs)
-        internal_logger.setLevel(self.log_level)
-        self.logger = SimplifiedLogger("remote_rtcm_corrections_handler")
-        # Publisher to publish RTCM corrections to Rover
-        self.rtcm_publisher = self.create_publisher(
+        self._key = self.get_parameter("key").get_parameter_value().string_value
+        self._channel_name = self.get_parameter("channel").get_parameter_value().string_value
+        self._frame_id = self.get_parameter("frame_id").get_parameter_value().string_value
+
+        # ---- Logging (shared helper) -------------------------------------
+        _, self.logger = setup_node_logging(self, "RemoteRTCM")
+
+        # ---- Publisher ----------------------------------------------------
+        self._rtcm_pub = self.create_publisher(
             CorrectionMessage, "rtcm_corrections", 50
         )
-        asyncio.run(self.__process())
-        pass
 
-    pass
-
-    async def __process(self):
-        self.logger.info("Connecting to real-time...")
-        await self._connect_to_ably()
-        self.__channel = self.ably.channels.get(self.channel)
-        await self.__channel.subscribe(
-            "RTCM Corrections", self.__process_incoming_messages
+        # Run the Ably event loop in a background daemon thread so
+        # rclpy.spin() on the main thread is never blocked.
+        self._ably_thread = threading.Thread(
+            target=self._run_ably_loop, name="ably_loop", daemon=True
         )
+        self._ably_thread.start()
+
+    # ------------------------------------------------------------------
+    # Ably event loop (runs in background thread)
+    # ------------------------------------------------------------------
+
+    def _run_ably_loop(self) -> None:
+        """Create a new asyncio event loop in this thread and run the Ably client."""
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(self._ably_process())
+        except Exception as e:
+            self.logger.error(f"Ably loop error: {e}")
+        finally:
+            loop.close()
+
+    async def _ably_process(self) -> None:
+        """Connect to Ably, subscribe, and keep pinging while ROS is alive."""
+        self.logger.info("Connecting to Ably real-time...")
+        self._ably = AblyRealtime(self._key, auto_connect=False)
+        self._ably.connect()
+        self._ably.connection.on(self._log_connection_event)
+        await self._ably.connection.once_async(ConnectionState.CONNECTED)
+
+        channel = self._ably.channels.get(self._channel_name)
+        await channel.subscribe("RTCM Corrections", self._on_rtcm_message)
+
         while rclpy.ok():
-            # await self.ably.connection.ping()
-            await self.__channel.publish_message(
+            await channel.publish_message(
                 Message(
                     name="Rover Ping",
-                    data=self.ably.connection.connection_manager.connection_id,
+                    data=self._ably.connection.connection_manager.connection_id,
                 )
             )
             await asyncio.sleep(15)
-        await self.ably.connection.once_async(ConnectionState.CLOSED)
 
-    async def _connect_to_ably(self):
-        # connects automatically after initialization. no need to manually connect to realtime.
-        self.ably = AblyRealtime(self.key, auto_connect=False)
-        self.ably.connect()
-        self.ably.connection.on(self.log_events)
-        await self.ably.connection.once_async(ConnectionState.CONNECTED)
+        await self._ably.connection.once_async(ConnectionState.CLOSED)
 
-    def log_events(self, args: ConnectionStateChange):
+    # ------------------------------------------------------------------
+    # Callbacks
+    # ------------------------------------------------------------------
+
+    def _log_connection_event(self, event: ConnectionStateChange) -> None:
+        """Log Ably connection state transitions."""
         self.logger.info(
-            "connection state changed from " + args.previous + " to " + args.current
+            f"Ably connection state changed: {event.previous} -> {event.current}"
         )
-        pass
 
-    def __process_incoming_messages(self, message: Message):
+    def _on_rtcm_message(self, message: Message) -> None:
+        """Decode base-64 RTCM fragments and publish each as a CorrectionMessage."""
         try:
-            for msg in message.data:
-                rtcmMessage = CorrectionMessage(
+            for fragment in message.data:
+                msg = CorrectionMessage(
                     header=Header(
                         stamp=self.get_clock().now().to_msg(),
                         frame_id=self._frame_id,
                     ),
-                    message=base64.b64decode(msg),
+                    message=base64.b64decode(fragment),
                 )
-                self.rtcm_publisher.publish(rtcmMessage)
-            pass
-        except:
-            self.logger.error(
-                "Exception while processing received message. message skipped."
-            )
-            pass
+                self._rtcm_pub.publish(msg)
+        except Exception as e:
+            self.logger.error(f"Error processing Ably RTCM message: {e}")
+
+
+# ------------------------------------------------------------------
+# Entry point
+# ------------------------------------------------------------------
 
 
 def main():
     rclpy.init()
-    rtcm_data_handler = RemoteRtcmCorrectionsHandler()
+    handler = RemoteRtcmCorrectionsHandler()
     try:
-        rclpy.spin(rtcm_data_handler)
+        rclpy.spin(handler)
     except KeyboardInterrupt:
         pass
-    rtcm_data_handler.destroy_node()
-    rclpy.shutdown()
+    except Exception as e:
+        handler.logger.error(f"Unexpected error: {e}")
+    finally:
+        handler.destroy_node()
+        rclpy.shutdown()
 
 
 if __name__ == "__main__":

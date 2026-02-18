@@ -1,61 +1,36 @@
-# import launch
-# from launch_ros.actions import Node
-# from launch.actions import DeclareLaunchArgument
-# from launch.substitutions import LaunchConfiguration
+"""Launch: Static-baseline configuration.
 
-import os
-from ament_index_python import get_package_share_directory
+Starts the Ably-based remote RTCM handler, a Rover GPS node, and the visualizer.
+A TruPrecision base station pushes RTCM to an Ably channel; the handler relays
+it to the rover via the ``rtcm_topic``.
+"""
+
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
 from launch_ros.actions import Node
 
-#     Log Level values for different logging levels
-#     NotSet = 0
-#     Debug = 10
-#     Info = 20
-#     Warn = 30
-#     Error = 40
-#     Critical = 50
+from calian_gnss_ros2.launch_common import config_path, logs_config_path, gps_node, visualizer_node
+
+_RTCM_REMAP = [("rtcm_corrections", "rtcm_topic")]
+_PKG = "calian_gnss_ros2"
 
 
 def generate_launch_description():
-    config = os.path.join(
-        get_package_share_directory("calian_gnss_ros2"), "params", "config.yaml"
-    )
-
-    logs_config = os.path.join(
-        get_package_share_directory("calian_gnss_ros2"), "params", "logs.yaml"
-    )
     return LaunchDescription(
         [
+            DeclareLaunchArgument("viz_port", default_value="8080",
+                                 description="HTTP port for the map visualizer"),
             Node(
-                package="calian_gnss_ros2",
+                package=_PKG,
                 executable="remote_rtcm_corrections_handler",
                 name="rtcm_handler",
                 output="screen",
                 emulate_tty=False,
-                parameters=[config, logs_config],
+                parameters=[config_path(), logs_config_path()],
                 namespace="calian_gnss",
-                remappings=[("rtcm_corrections", "rtcm_topic")],
+                remappings=_RTCM_REMAP,
             ),
-            Node(
-                package="calian_gnss_ros2",
-                executable="calian_gnss_gps",
-                name="rover",
-                output="screen",
-                emulate_tty=True,
-                parameters=[config, logs_config],
-                namespace="calian_gnss",
-                remappings=[("rtcm_corrections", "rtcm_topic")],
-                arguments=["Rover"],
-            ),
-            Node(
-                package="calian_gnss_ros2",
-                executable="calian_gnss_gps_visualizer",
-                name="gps_visualizer",
-                output="screen",
-                emulate_tty=False,
-                parameters=[{"port": 8080}],
-                namespace="calian_gnss",
-            ),
+            gps_node(name="rover", mode="Rover", remappings=_RTCM_REMAP),
+            visualizer_node(),
         ]
     )

@@ -1,20 +1,40 @@
-# Calian GNSS ROS2 Custom Message Types
+# Calian GNSS ROS 2 Custom Messages
 
-This package contains the custom message types used in the `calian_gnss_ros2` package. These message types are specifically designed to enhance communication and data exchange related to GNSS (Global Navigation Satellite System) operations within a ROS2 environment.
+Custom message types used by the `calian_gnss_ros2` driver package.
 
 ## Message Types
 
-### 1. CorrectionMessage.msg
-This message is used for communicating correction information. It facilitates the transmission of data required for GNSS correction, ensuring accurate positioning and navigation.
+### CorrectionMessage.msg
+Raw RTCM correction payload with a timestamped header.
 
-### 2. GnssSignalStatus.msg
-This message provides detailed GNSS information from the antenna, including satellite and signal quality data. It is built on the standard `NavSatFix` message, extending its functionality to include additional status details.
+| Field | Type | Description |
+|-------|------|-------------|
+| `header` | `std_msgs/Header` | Timestamp + frame |
+| `message` | `uint8[]` | Raw RTCM byte payload |
 
-### 3. NavSatInfo.msg
-This message delivers information about satellite identity and signal quality. It is designed to work alongside other GNSS messages to provide comprehensive satellite data, supporting high-quality GNSS operations.
+### GnssSignalStatus.msg
+Extended GPS fix built on `NavSatFix`, adding heading, accuracy, quality string, augmentation status, and per-constellation satellite counts.
+
+### NavSatInfo.msg
+Satellite constellation identity and count (used inside `GnssSignalStatus`).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `gnss_id` | `uint8` | Constellation ID (0=GPS, 1=SBAS, 2=Galileo, 3=BeiDou, 4=IMES, 5=QZSS, 6=GLONASS) |
+| `count` | `uint8` | Satellite count |
+
+### ReceiverHealthStatus.msg
+Antenna receiver health status string.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `header` | `std_msgs/Header` | Timestamp + frame |
+| `health` | `string` | Health status description |
 
 ## Usage
-To use these custom message types in your ROS2 project, include this package as a dependency in your `package.xml` and `CMakeLists.txt` files. You can then import and utilize these messages in your ROS2 nodes as needed.
 
-## Installation
-Clone this repository into your ROS2 workspace and build it using `colcon`.
+Add `calian_gnss_ros2_msg` as a dependency in your `package.xml`, then import:
+
+```python
+from calian_gnss_ros2_msg.msg import GnssSignalStatus, CorrectionMessage, ReceiverHealthStatus
+```

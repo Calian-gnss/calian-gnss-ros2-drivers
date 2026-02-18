@@ -1,71 +1,83 @@
-from calian_gnss_ros2.serial_module import SerialUtilities
-import rclpy
+"""Unique ID Finder — scans serial ports for connected Calian antennas and prints their unique IDs.
+
+This is a one-shot utility node: it runs the scan, prints results, and exits.
+"""
+
 import serial
-from serial.tools.list_ports import comports
-from rclpy.node import Node
-from calian_gnss_ros2.logging import Logger, LoggingLevel, SimplifiedLogger
 import concurrent.futures
+from serial.tools.list_ports import comports
+
+import rclpy
+from rclpy.node import Node
+
+from calian_gnss_ros2.serial_module import SerialUtilities
+from calian_gnss_ros2.logging import setup_node_logging
+
+
+# Standard baud rates to probe (low → high)
+_BAUD_RATES = [9600, 19200, 38400, 57600, 115200, 230400, 460800]
+_EXTRACT_TIMEOUT_SEC = 3
 
 
 class UniqueIdFinder(Node):
+    """Scans all serial ports with 'Standard' in the description for antenna unique IDs."""
+
     def __init__(self) -> None:
         super().__init__("unique_id_finder")
-        self.declare_parameter("save_logs", False)
-        self.declare_parameter("log_level", LoggingLevel.Info)
-        self.save_logs = (
-            self.get_parameter("save_logs").get_parameter_value().bool_value
-        )
-        self.log_level: LoggingLevel = LoggingLevel(
-            self.get_parameter("log_level").get_parameter_value().integer_value
-        )
-        self.baudrates = [9600, 19200, 38400, 57600, 115200, 230400, 460800]
-        # endregion
-        internal_logger = Logger(self.get_logger())
-        internal_logger.toggle_logs(self.save_logs)
-        internal_logger.setLevel(self.log_level)
-        self.logger = SimplifiedLogger("unique_id_finder")
-        self.logger.info("Processing connected ports.....")
+
+        _, self.logger = setup_node_logging(self, "UniqueIdFinder")
+
+        self.logger.info("Processing connected ports...")
         ports = comports()
-        if len(ports) == 0:
+
+        if not ports:
             self.logger.warn("No ports connected.")
-        else:
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                for port in ports:
-                    if port.description.find("Standard") != -1:
-                        for baudrate in self.baudrates:
-                            standard_port = None
-                            try:
-                                self.logger.debug("Connecting to port " + port.device + " using baud : " + str(baudrate))
-                                standard_port = serial.Serial(port.device, baudrate)
-                                thread = executor.submit(
-                                    SerialUtilities.extract_unique_id_of_port,
-                                    standard_port=standard_port,
-                                    timeout=3,
-                                )
-                                unique_id_of_port = thread.result(3)
-                                self.logger.info(
-                                    port.device + " : " + unique_id_of_port.upper() + " using baud : " + str(baudrate) 
-                                )
-                                break
-                            except:
-                                self.logger.error(
-                                    "Cannot get unique id of the port " + port.device + " using baud : " + str(baudrate)
-                                )
-                                pass
-                            finally:
-                                if standard_port is not None:
-                                    standard_port.close()
-                            
-                        self.logger.debug("Moving on to next port.")
-                    pass
-                pass
+            return
+
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            for port in ports:
+                if "Standard" not in port.description:
+                    continue
+
+                for baudrate in _BAUD_RATES:
+                    standard_port = None
+                    try:
+                        self.logger.debug(
+                            f"Connecting to {port.device} at baud {baudrate}"
+                        )
+                        standard_port = serial.Serial(port.device, baudrate)
+                        future = executor.submit(
+                            SerialUtilities.extract_unique_id_of_port,
+                            standard_port=standard_port,
+                            timeout=_EXTRACT_TIMEOUT_SEC,
+                        )
+                        unique_id = future.result(_EXTRACT_TIMEOUT_SEC)
+                        self.logger.info(
+                            f"{port.device} : {unique_id.upper()} at baud {baudrate}"
+                        )
+                        break  # Found it — move to next port
+                    except Exception as e:
+                        self.logger.error(
+                            f"Cannot get unique id of {port.device} at baud {baudrate}: {e}"
+                        )
+                    finally:
+                        if standard_port is not None:
+                            standard_port.close()
+
+                self.logger.debug("Moving on to next port.")
+
         self.logger.info("All ports are processed.")
+
+
+# ------------------------------------------------------------------
+# Entry point
+# ------------------------------------------------------------------
 
 
 def main():
     rclpy.init()
-    unique_id_finder = UniqueIdFinder()
-    unique_id_finder.destroy_node()
+    node = UniqueIdFinder()
+    node.destroy_node()
     rclpy.shutdown()
 
 

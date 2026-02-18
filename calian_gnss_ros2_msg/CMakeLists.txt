@@ -20,9 +20,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/NavSatInfo.msg"
   "msg/CorrectionMessage.msg"
   "msg/ReceiverHealthStatus.msg"
-  DEPENDENCIES std_msgs
-  DEPENDENCIES sensor_msgs
-  DEPENDENCIES builtin_interfaces
+  DEPENDENCIES std_msgs sensor_msgs builtin_interfaces
 )
 
 if(BUILD_TESTING)
