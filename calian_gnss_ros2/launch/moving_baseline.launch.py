@@ -1,87 +1,26 @@
-# import launch
-# from launch_ros.actions import Node
-# from launch.actions import DeclareLaunchArgument
-# from launch.substitutions import LaunchConfiguration
+"""Launch: Moving-baseline configuration.
 
-import os
-from ament_index_python import get_package_share_directory
+Starts a Base GPS node, a Rover GPS node, an NTRIP client, and the visualizer.
+The base publishes RTCM corrections to the ``rtcm_topic`` which the rover consumes.
+"""
+
 from launch import LaunchDescription
-from launch_ros.actions import Node
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
 
-#     Log Level values for different logging levels
-#     NotSet = 0
-#     Debug = 10
-#     Info = 20
-#     Warn = 30
-#     Error = 40
-#     Critical = 50
+from calian_gnss_ros2.launch_common import gps_node, ntrip_node, visualizer_node
+
+_RTCM_REMAP = [("rtcm_corrections", "rtcm_topic")]
 
 
 def generate_launch_description():
-    config = os.path.join(
-        get_package_share_directory("calian_gnss_ros2"), "params", "config.yaml"
-    )
-
-    corrections_config = os.path.join(
-        get_package_share_directory("calian_gnss_ros2"), "params", "pointperfect.yaml"
-    )
-
-    ntrip_corrections_config = os.path.join(
-        get_package_share_directory("calian_gnss_ros2"), "params", "ntrip.yaml"
-    )
-    logs_config = os.path.join(
-        get_package_share_directory("calian_gnss_ros2"), "params", "logs.yaml"
-    )
     return LaunchDescription(
         [
-            Node(
-                package="calian_gnss_ros2",
-                executable="calian_gnss_gps",
-                name="base",
-                output="screen",
-                emulate_tty=True,
-                parameters=[config, logs_config],
-                namespace="calian_gnss",
-                remappings=[("rtcm_corrections", "rtcm_topic")],
-                arguments=["Heading_Base"],
-            ),
-            # Node(
-            #     package="calian_gnss_ros2",
-            #     executable="pointperfect",
-            #     name="pointperfect",
-            #     output="screen",
-            #     emulate_tty=True,
-            #     parameters=[corrections_config, logs_config],
-            #     namespace="calian_gnss",
-            # ),
-            Node(
-                package="calian_gnss_ros2",
-                executable="ntrip_client",
-                name="ntrip_client",
-                output="screen",
-                emulate_tty=True,
-                parameters=[ntrip_corrections_config, logs_config],
-                namespace="calian_gnss",
-            ),
-            Node(
-                package="calian_gnss_ros2",
-                executable="calian_gnss_gps",
-                name="rover",
-                output="screen",
-                emulate_tty=True,
-                parameters=[config, logs_config],
-                namespace="calian_gnss",
-                remappings=[("rtcm_corrections", "rtcm_topic")],
-                arguments=["Rover"],
-            ),
-            Node(
-                package="calian_gnss_ros2",
-                executable="calian_gnss_gps_visualizer",
-                name="gps_visualizer",
-                output="screen",
-                emulate_tty=False,
-                parameters=[{"port": 8080}],
-                namespace="calian_gnss",
-            ),
+            DeclareLaunchArgument("viz_port", default_value="8080",
+                                 description="HTTP port for the map visualizer"),
+            gps_node(name="base", mode="Heading_Base", remappings=_RTCM_REMAP),
+            ntrip_node(),
+            gps_node(name="rover", mode="Rover", remappings=_RTCM_REMAP),
+            visualizer_node(LaunchConfiguration("viz_port")),
         ]
     )
